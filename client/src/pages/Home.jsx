@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { APP_TITLE } from "@/const";
+import { APP_TITLE, APP_LOGO } from "@/const";
 import { Link } from "wouter";
 import { Sofa, Ruler, Package, Phone, MapPin, Facebook, Instagram, Mail, MessageCircle, Clock } from "lucide-react";
 
@@ -10,8 +10,12 @@ export default function Home() {
       {/* Header */}
       <header className="border-b bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sofa className="h-6 w-6 text-primary" />
+          <div className="flex items-center gap-3">
+            <img
+              src={APP_LOGO}
+              alt="Decor Mali"
+              className="h-8 w-8 rounded-full ring-1 ring-muted object-contain"
+            />
             <span className="font-bold text-xl">{APP_TITLE}</span>
           </div>
           <div className="flex items-center gap-3">
