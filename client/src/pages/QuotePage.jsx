@@ -222,20 +222,24 @@ function QuotePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="border-b">
-        <div className="container py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Sofa className="h-6 w-6" />
-            <span className="font-semibold">{APP_TITLE}</span>
-          </div>
-          <Link href="/">
-            <Button variant="ghost" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Retour
-            </Button>
-          </Link>
-        </div>
-      </header>
+     <header className="border-b">
+  <div className="container py-4 flex items-center justify-between">
+    <div className="flex items-center gap-3">
+      <img
+        src={APP_LOGO}
+        alt="Decor Mali"
+        className="h-8 w-8 rounded-full ring-1 ring-muted object-contain"
+      />
+      <span className="font-semibold">{APP_TITLE}</span>
+    </div>
+    <Link href="/">
+      <Button variant="ghost" className="gap-2">
+        <ArrowLeft className="h-4 w-4" />
+        Retour
+      </Button>
+    </Link>
+  </div>
+</header>
 
       <main className="container py-12 flex-1">
         <div className="max-w-5xl mx-auto space-y-8">
