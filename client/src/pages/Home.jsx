@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_TITLE } from "@/const";
 import { Link } from "wouter";
-import { Sofa, Ruler, Package, Phone, MapPin, Facebook, Instagram, Mail } from "lucide-react";
+import { Sofa, Ruler, Package, Phone, MapPin, Facebook, Instagram, Mail, MessageCircle, Clock } from "lucide-react";
 
 export default function Home() {
   return (
@@ -14,17 +14,11 @@ export default function Home() {
             <Sofa className="h-6 w-6 text-primary" />
             <span className="font-bold text-xl">{APP_TITLE}</span>
           </div>
-          <nav className="hidden md:flex items-center gap-6">
-            <Link href="/">
-              <a className="text-sm font-medium hover:text-primary transition-colors">Accueil</a>
-            </Link>
+          <div className="flex items-center gap-3">
             <Link href="/quote">
-              <a className="text-sm font-medium hover:text-primary transition-colors">Devis</a>
+              <Button>Demander un devis</Button>
             </Link>
-          </nav>
-          <Link href="/quote">
-            <Button>Demander un devis</Button>
-          </Link>
+          </div>
         </div>
       </header>
 
@@ -36,161 +30,15 @@ export default function Home() {
         </div>
         <div className="container">
           <div className="max-w-3xl mx-auto text-center space-y-6 relative z-10">
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tight bg-gradient-to-r from-orange-600 via-amber-600 to-orange-600 bg-clip-text text-transparent">
-              Équipements de Maison de Qualité
+            <h1 className="text-5xl md:text-6xl font-bold tracking-tight">
+              Salons marocains, Tapis & Rideaux
             </h1>
-            <p className="text-xl text-muted-foreground">
-              Salons marocains, mauritaniens, tapis, rideaux et moquettes sur mesure à Bamako
+            <p className="text-lg text-muted-foreground">
+              Confection sur-mesure, livraison et installation à Bamako et environs.
             </p>
-            <div className="flex gap-4 justify-center pt-4">
+            <div className="flex justify-center gap-4">
               <Link href="/quote">
-                <Button size="lg" className="gap-2 bg-orange-600 hover:bg-orange-700">
-                  <Ruler className="h-5 w-5" />
-                  Calculer un devis
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-20 bg-gradient-to-b from-background to-muted/30">
-        <div className="container">
-          <h2 className="text-3xl font-bold text-center mb-12">Nos Services</h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <Card className="border-orange-200">
-              <CardHeader>
-                <Sofa className="h-12 w-12 text-orange-600 mb-4" />
-                <CardTitle>Salons sur Mesure</CardTitle>
-                <CardDescription>
-                  Salons marocains et mauritaniens fabriqués selon vos dimensions et préférences
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Choix de tissus variés</li>
-                  <li>• Épaisseurs personnalisables</li>
-                  <li>• Tables assorties disponibles</li>
-                  <li>• Livraison et installation</li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-amber-200">
-              <CardHeader>
-                <Ruler className="h-12 w-12 text-amber-600 mb-4" />
-                <CardTitle>Tapis & Moquettes</CardTitle>
-                <CardDescription>
-                  Large sélection de tapis et moquettes pour tous les espaces
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Dimensions personnalisées</li>
-                  <li>• Qualité premium</li>
-                  <li>• Prix compétitifs</li>
-                  <li>• Livraison rapide</li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-orange-200">
-              <CardHeader>
-                <Package className="h-12 w-12 text-orange-600 mb-4" />
-                <CardTitle>Devis Instantané</CardTitle>
-                <CardDescription>
-                  Calculez votre devis en ligne en quelques clics
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Calcul automatique</li>
-                  <li>• Prix transparents</li>
-                  <li>• Réponse rapide</li>
-                  <li>• Visite sur place possible</li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Info Section */}
-      <section className="relative bg-gradient-to-br from-orange-50 via-amber-50 to-orange-50 py-20">
-        <div className="container">
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-3xl font-bold text-center mb-12">Nos Tarifs</h2>
-            <div className="grid md:grid-cols-2 gap-8">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-orange-700">Salons Marocains</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Matelas standard (1m90)</span>
-                    <span className="font-semibold">130 000 FCFA</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Coin (1m x 1m)</span>
-                    <span className="font-semibold">130 000 FCFA</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Bras (paire)</span>
-                    <span className="font-semibold">96 000 FCFA</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Petite table</span>
-                    <span className="font-semibold">50 000 FCFA</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Grande table</span>
-                    <span className="font-semibold">130 000 FCFA</span>
-                  </div>
-                  <div className="pt-3 border-t">
-                    <p className="text-xs text-muted-foreground">
-                      * Tissu par défaut : Moutarras | Épaisseur : 30cm
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-amber-700">Tapis & Rideaux</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tapis (par m²)</span>
-                    <span className="font-semibold">13 000 FCFA</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Rideaux 1ère qualité</span>
-                    <span className="font-semibold">6 000 FCFA/m²</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Rideaux 2ème qualité</span>
-                    <span className="font-semibold">4 500 FCFA/m²</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Rideaux 3ème qualité</span>
-                    <span className="font-semibold">4 000 FCFA/m²</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Livraison Bamako</span>
-                    <span className="font-semibold">75 000 FCFA</span>
-                  </div>
-                  <div className="pt-3 border-t">
-                    <p className="text-xs text-muted-foreground">
-                      Exemple : Tapis 5m x 4m = 260 000 FCFA
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-            <div className="text-center mt-8">
-              <Link href="/quote">
-                <Button size="lg" className="bg-orange-600 hover:bg-orange-700">
+                <Button className="bg-orange-600 hover:bg-orange-700">
                   Calculer mon devis personnalisé
                 </Button>
               </Link>
@@ -199,6 +47,48 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Avantages */}
+      <section className="py-16">
+        <div className="container">
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Ruler className="h-5 w-5 text-orange-600" />
+                  Sur-mesure
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Mesures adaptées à votre espace : salons en L ou en U, tapis & rideaux au centimètre près.
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5 text-orange-600" />
+                  Livraison & Pose
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Service complet : fabrication, livraison à Bamako et installation par nos équipes.
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sofa className="h-5 w-5 text-orange-600" />
+                  Qualité pro
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Matériaux sélectionnés et finitions soignées, durables au quotidien.
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Info Section */}
       {/* Contact Section */}
       <section className="py-20">
         <div className="container">
@@ -208,9 +98,17 @@ export default function Home() {
               Notre équipe est à votre disposition pour répondre à toutes vos questions
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
-              <div className="flex items-center gap-2">
+              <a href="tel:+22370932462" className="flex items-center gap-2 hover:opacity-90">
                 <Phone className="h-5 w-5 text-orange-600" />
-                <span className="font-medium">+223 XX XX XX XX</span>
+                <span className="font-medium">+223 70 93 24 62</span>
+              </a>
+              <a href="https://wa.me/22370932462" target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:opacity-90">
+                <MessageCircle className="h-5 w-5 text-orange-600" />
+                <span className="font-medium">WhatsApp : +223 70 93 24 62</span>
+              </a>
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-orange-600" />
+                <span className="font-medium">Toujours ouvert</span>
               </div>
               <div className="flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-orange-600" />
@@ -222,24 +120,11 @@ export default function Home() {
               </div>
             </div>
             <div className="flex gap-4 justify-center pt-4">
-              <Button variant="outline" size="icon" className="border-orange-200 hover:bg-orange-50">
-                <Facebook className="h-5 w-5 text-orange-600" />
-              </Button>
-              <Button variant="outline" size="icon" className="border-orange-200 hover:bg-orange-50">
-                <Instagram className="h-5 w-5 text-orange-600" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t py-8 mt-auto bg-muted/30">
-        <div className="container text-center text-sm text-muted-foreground">
-          <p>&copy; 2025 {APP_TITLE}. Tous droits réservés.</p>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
+              <a
+                href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button variant="outline" size="icon" className="border-orange-200 hover:bg-orange-50">
+                  <Facebook className="h-5 w-5 text-orange-600" />
+                </Button>
