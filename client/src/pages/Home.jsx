@@ -46,7 +46,11 @@ export default function Home() {
                   Calculer mon devis
                 </Button>
               </Link>
-              <a href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR" target="_blank" rel="noreferrer">
+              <a
+                href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR"
+                target="_blank"
+                rel="noreferrer"
+              >
                 <Button size="lg" variant="outline" className="border-orange-200 hover:bg-orange-50">
                   <Facebook className="mr-2 h-5 w-5" />
                   Facebook
@@ -127,7 +131,12 @@ export default function Home() {
                 <span className="font-medium">+223 70 93 24 62</span>
               </a>
 
-              <a href="https://wa.me/22370932462" target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:opacity-90">
+              <a
+                href="https://wa.me/22370932462"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 hover:opacity-90"
+              >
                 <MessageCircle className="h-5 w-5 text-orange-600" />
                 <span className="font-medium">WhatsApp : +223 70 93 24 62</span>
               </a>
@@ -149,7 +158,11 @@ export default function Home() {
             </div>
 
             <div className="flex gap-4 justify-center pt-4">
-              <a href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR" target="_blank" rel="noreferrer">
+              <a
+                href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR"
+                target="_blank"
+                rel="noreferrer"
+              >
                 <Button variant="outline" size="icon" className="border-orange-200 hover:bg-orange-50">
                   <Facebook className="h-5 w-5 text-orange-600" />
                 </Button>
