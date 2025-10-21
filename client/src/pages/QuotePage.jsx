@@ -7,76 +7,46 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Calculator, Send, ArrowLeft, Sofa } from "lucide-react";
+import { Calculator, Send, ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { APP_TITLE } from "@/const";
+import { APP_TITLE, APP_LOGO } from "@/const";
 
-// Pricing constants
+// Barèmes (utilisés pour le calcul ET affichés dans le devis)
 const PRICES = {
-  salon: {
-    mattress: 130000,
-    corner: 130000,
-    arms: 96000,
-    smallTable: 50000,
-    bigTable: 130000,
-    delivery: 75000,
-  },
-  carpet: {
-    pricePerSqm: 13000,
-    delivery: 75000,
-  },
-  curtain: {
-    dubai: 6000,
-    quality2: 4500,
-    quality3: 4000,
-    delivery: 75000,
-  },
+  salon: { mattress: 130000, corner: 130000, arms: 96000, smallTable: 50000, bigTable: 130000, delivery: 75000 },
+  carpet: { pricePerSqm: 13000, delivery: 75000 },
+  curtain: { dubai: 6000, quality2: 4500, quality3: 4000, delivery: 75000 },
 };
 
 function QuotePage() {
   const [activeTab, setActiveTab] = useState("salon");
 
-  // --- SALON (corrigé pour formes L/U + mètres par côté) ---
+  // ----- SALON (formes L/U + mètres par côté)
   const [salonData, setSalonData] = useState({
     shape: "L",          // "L" ou "U"
     sideA_m: 4,          // L : côté A / U : côté gauche
     sideB_m: 3,          // L : côté B / U : côté central
-    sideC_m: 0,          // U uniquement : côté droit
-    mattressLength_m: 1.9, // longueur d’un matelas (m)
+    sideC_m: 0,          // U : côté droit
+    mattressLength_m: 1.9,
     hasSmallTable: false,
     hasBigTable: false,
     needsDelivery: false,
   });
 
-  // --- CARPET ---
-  const [carpetData, setCarpetData] = useState({
-    length: 3,
-    width: 2,
-    needsDelivery: false,
-  });
+  // ----- TAPIS
+  const [carpetData, setCarpetData] = useState({ length: 3, width: 2, needsDelivery: false });
 
-  // --- CURTAIN ---
-  const [curtainData, setCurtainData] = useState({
-    length: 2.5,
-    width: 3,
-    quality: "dubai",
-    needsDelivery: false,
-  });
+  // ----- RIDEAUX
+  const [curtainData, setCurtainData] = useState({ length: 2.5, width: 3, quality: "dubai", needsDelivery: false });
 
-  // Customer info
-  const [customerInfo, setCustomerInfo] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    address: "",
-    notes: "",
-  });
+  // ----- Client
+  const [customerInfo, setCustomerInfo] = useState({ name: "", email: "", phone: "", address: "", notes: "" });
 
   const [calculatedPrice, setCalculatedPrice] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- Calcul géométrique salon (L/U) ---
+  // --- Calcul géométrique salon (L/U)
   const calcSalonGeometry = (data) => {
     const COIN_M = 1;
     const ml = Math.max(0.5, Number(data.mattressLength_m || 1.9));
@@ -106,6 +76,7 @@ function QuotePage() {
     return { corners, arms, mattressCount, perSide, mattressLength_m: ml };
   };
 
+  // ----- Calculs
   const calculateSalonPrice = () => {
     const geom = calcSalonGeometry(salonData);
 
@@ -123,7 +94,7 @@ function QuotePage() {
       type: "salon",
       breakdown: {
         forme: salonData.shape,
-        cotes: geom.perSide, // [{id, len, effective, mattresses}]
+        cotes: geom.perSide,
         matelas: { count: geom.mattressCount, unitPrice: PRICES.salon.mattress, total: mattressTotal },
         coins: { count: geom.corners, unitPrice: PRICES.salon.corner, total: cornerTotal },
         bras: { count: geom.arms, unitPrice: PRICES.salon.arms, total: armsTotal },
@@ -175,13 +146,9 @@ function QuotePage() {
 
   const handleCalculate = () => {
     let result;
-    if (activeTab === "salon") {
-      result = calculateSalonPrice();
-    } else if (activeTab === "carpet") {
-      result = calculateCarpetPrice();
-    } else {
-      result = calculateCurtainPrice();
-    }
+    if (activeTab === "salon") result = calculateSalonPrice();
+    else if (activeTab === "carpet") result = calculateCarpetPrice();
+    else result = calculateCurtainPrice();
     setCalculatedPrice(result);
     toast.success("Prix calculé avec succès !");
   };
@@ -191,41 +158,32 @@ function QuotePage() {
       toast.error("Veuillez renseigner votre nom et téléphone");
       return;
     }
-
     if (!calculatedPrice) {
       toast.error("Veuillez d'abord calculer le prix");
       return;
     }
-
     setIsSubmitting(true);
-
-    // Simulate sending email (in production, you'd use a service like EmailJS or Netlify Forms)
     setTimeout(() => {
-      toast.success("Demande de devis envoyée avec succès ! Nous vous contacterons bientôt.");
-
-      // Reset form
-      setCustomerInfo({
-        name: "",
-        email: "",
-        phone: "",
-        address: "",
-        notes: "",
-      });
+      toast.success("Demande de devis envoyée. Nous vous contacterons bientôt.");
+      setCustomerInfo({ name: "", email: "", phone: "", address: "", notes: "" });
       setCalculatedPrice(null);
       setIsSubmitting(false);
-    }, 1200);
+    }, 1000);
   };
 
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('fr-FR').format(price) + " FCFA";
-  };
+  const formatPrice = (price) => new Intl.NumberFormat("fr-FR").format(price) + " FCFA";
 
+  // ----- UI
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b">
         <div className="container py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Sofa className="h-6 w-6" />
+            <img
+              src={APP_LOGO}
+              alt="Decor Mali"
+              className="h-8 w-8 rounded-full ring-1 ring-muted object-contain"
+            />
             <span className="font-semibold">{APP_TITLE}</span>
           </div>
           <Link href="/">
@@ -241,9 +199,7 @@ function QuotePage() {
         <div className="max-w-5xl mx-auto space-y-8">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold">Calculateur de Devis</h1>
-            <p className="text-muted-foreground">
-              Obtenez une estimation instantanée pour vos salons marocains, tapis et rideaux.
-            </p>
+            <p className="text-muted-foreground">Estimation détaillée avec prix.</p>
           </div>
 
           <Tabs defaultValue="salon" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -253,21 +209,18 @@ function QuotePage() {
               <TabsTrigger value="curtain">Rideaux</TabsTrigger>
             </TabsList>
 
-            {/* --- SALON (mis à jour) --- */}
+            {/* SALON */}
             <TabsContent value="salon" className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration du Salon</CardTitle>
-                  <CardDescription>Personnalisez votre salon marocain (forme en L ou en U)</CardDescription>
+                  <CardDescription>Forme en L ou en U, longueurs en mètres</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <Label>Forme du salon</Label>
-                      <Select
-                        value={salonData.shape}
-                        onValueChange={(v) => setSalonData({ ...salonData, shape: v })}
-                      >
+                      <Select value={salonData.shape} onValueChange={(v) => setSalonData({ ...salonData, shape: v })}>
                         <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="L">L</SelectItem>
@@ -275,13 +228,10 @@ function QuotePage() {
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Longueur d’un matelas (m)</Label>
                       <Input
-                        type="number"
-                        step="0.1"
-                        min="0.5"
+                        type="number" step="0.1" min="0.5"
                         value={salonData.mattressLength_m}
                         onChange={(e) => setSalonData({ ...salonData, mattressLength_m: Number(e.target.value) })}
                       />
@@ -292,20 +242,14 @@ function QuotePage() {
                     <div className="grid md:grid-cols-3 gap-6 pt-2">
                       <div className="space-y-2">
                         <Label>Côté A (m)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
+                        <Input type="number" step="0.1" min="0"
                           value={salonData.sideA_m}
                           onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label>Côté B (m)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
+                        <Input type="number" step="0.1" min="0"
                           value={salonData.sideB_m}
                           onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}
                         />
@@ -319,30 +263,21 @@ function QuotePage() {
                     <div className="grid md:grid-cols-4 gap-6 pt-2">
                       <div className="space-y-2">
                         <Label>Gauche (m)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
+                        <Input type="number" step="0.1" min="0"
                           value={salonData.sideA_m}
                           onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label>Central (m)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
+                        <Input type="number" step="0.1" min="0"
                           value={salonData.sideB_m}
                           onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}
                         />
                       </div>
                       <div className="space-y-2">
                         <Label>Droit (m)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
+                        <Input type="number" step="0.1" min="0"
                           value={salonData.sideC_m}
                           onChange={(e) => setSalonData({ ...salonData, sideC_m: Number(e.target.value) })}
                         />
@@ -386,7 +321,7 @@ function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Estimation du Prix</CardTitle>
-                  <CardDescription>Calcul selon les dimensions et la forme du salon</CardDescription>
+                  <CardDescription>Calcul selon les dimensions et la forme</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-3">
@@ -402,9 +337,7 @@ function QuotePage() {
                           <div className="font-medium mb-2">Détail par côté</div>
                           {calculatedPrice.breakdown.cotes.map((c) => (
                             <div key={c.id} className="flex justify-between">
-                              <span>
-                                {c.id} : {c.len} m — utile {Number(c.effective).toFixed(2)} m
-                              </span>
+                              <span>{c.id} : {c.len} m — utile {Number(c.effective).toFixed(2)} m</span>
                               <span className="font-medium">Matelas : {c.mattresses}</span>
                             </div>
                           ))}
@@ -456,31 +389,25 @@ function QuotePage() {
               </Card>
             </TabsContent>
 
-            {/* --- TAPIS --- */}
+            {/* TAPIS */}
             <TabsContent value="carpet" className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration du Tapis</CardTitle>
-                  <CardDescription>Calculez la surface et le prix</CardDescription>
+                  <CardDescription>Surface et options</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-3 gap-6">
                     <div className="space-y-2">
                       <Label>Longueur (m)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0"
+                      <Input type="number" step="0.1" min="0"
                         value={carpetData.length}
                         onChange={(e) => setCarpetData({ ...carpetData, length: Number(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Largeur (m)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0"
+                      <Input type="number" step="0.1" min="0"
                         value={carpetData.width}
                         onChange={(e) => setCarpetData({ ...carpetData, width: Number(e.target.value) })}
                       />
@@ -532,41 +459,32 @@ function QuotePage() {
               </Card>
             </TabsContent>
 
-            {/* --- RIDEAUX --- */}
+            {/* RIDEAUX */}
             <TabsContent value="curtain" className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration des Rideaux</CardTitle>
-                  <CardDescription>Choisissez la qualité et mesurez</CardDescription>
+                  <CardDescription>Qualité, dimensions et options</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-4 gap-6">
                     <div className="space-y-2">
                       <Label>Hauteur (m)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0"
+                      <Input type="number" step="0.1" min="0"
                         value={curtainData.length}
                         onChange={(e) => setCurtainData({ ...curtainData, length: Number(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Largeur (m)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0"
+                      <Input type="number" step="0.1" min="0"
                         value={curtainData.width}
                         onChange={(e) => setCurtainData({ ...curtainData, width: Number(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Qualité</Label>
-                      <Select
-                        value={curtainData.quality}
-                        onValueChange={(v) => setCurtainData({ ...curtainData, quality: v })}
-                      >
+                      <Select value={curtainData.quality} onValueChange={(v) => setCurtainData({ ...curtainData, quality: v })}>
                         <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="dubai">Dubai</SelectItem>
@@ -601,10 +519,6 @@ function QuotePage() {
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span>Qualité</span>
-                          <span className="font-medium">{curtainData.quality}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
                           <span>Prix / m²</span>
                           <span className="font-medium">{formatPrice(PRICES.curtain[curtainData.quality])}</span>
                         </div>
@@ -627,50 +541,34 @@ function QuotePage() {
             </TabsContent>
           </Tabs>
 
-          {/* Infos client */}
+          {/* Coordonnées */}
           <Card>
             <CardHeader>
               <CardTitle>Vos coordonnées</CardTitle>
-              <CardDescription>Nous vous contacterons avec une offre détaillée</CardDescription>
+              <CardDescription>Nous vous contacterons pour finaliser l’offre</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Nom</Label>
-                  <Input
-                    value={customerInfo.name}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                  />
+                  <Input value={customerInfo.name} onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Téléphone</Label>
-                  <Input
-                    value={customerInfo.phone}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                  />
+                  <Input value={customerInfo.phone} onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Email</Label>
-                  <Input
-                    value={customerInfo.email}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
-                  />
+                  <Input value={customerInfo.email} onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Adresse</Label>
-                  <Input
-                    value={customerInfo.address}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
-                  />
+                  <Input value={customerInfo.address} onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })} />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Notes</Label>
-                <Textarea
-                  value={customerInfo.notes}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, notes: e.target.value })}
-                  placeholder="Informations complémentaires…"
-                />
+                <Textarea value={customerInfo.notes} onChange={(e) => setCustomerInfo({ ...customerInfo, notes: e.target.value })} placeholder="Informations complémentaires…" />
               </div>
               <div className="flex gap-3">
                 <Button onClick={handleSubmitQuote} disabled={isSubmitting} className="gap-2">
