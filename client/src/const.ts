@@ -4,7 +4,7 @@ export const APP_TITLE = import.meta.env.VITE_APP_TITLE || "Decor Mali";
 
 export const APP_LOGO =
   import.meta.env.VITE_APP_LOGO ||
-  "/decor-mali-logo.png";
+  "/icons/decor-mali-logo.png";
 
 // Generate login URL at runtime so redirect URI reflects the current origin.
 export const getLoginUrl = () => {
@@ -18,6 +18,5 @@ export const getLoginUrl = () => {
   url.searchParams.set("redirectUri", redirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("type", "signIn");
-
   return url.toString();
 };
