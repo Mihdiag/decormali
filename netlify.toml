@@ -1,0 +1,35 @@
+[build]
+  # Commande de build
+  command = "pnpm install && pnpm run build"
+  
+  # Répertoire de publication (sortie du build frontend)
+  publish = "dist/public"
+
+[build.environment]
+  # Version de Node.js
+  NODE_VERSION = "22.13.0"
+  
+  # Variables d'environnement de build
+  NODE_ENV = "production"
+
+# Redirections pour SPA (Single Page Application)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers de sécurité
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Headers pour les assets statiques (cache)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
