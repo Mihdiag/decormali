@@ -34,28 +34,29 @@ const PRICES = {
   },
 };
 
-export default function QuotePage() {
+function QuotePage() {
   const [activeTab, setActiveTab] = useState("salon");
-  
-  // Salon state
+
+  // --- SALON (corrigé pour formes L/U + mètres par côté) ---
   const [salonData, setSalonData] = useState({
-    mattressLength: 190,
-    mattressCount: 3,
-    cornerCount: 2,
-    armCount: 2,
+    shape: "L",          // "L" ou "U"
+    sideA_m: 4,          // L : côté A / U : côté gauche
+    sideB_m: 3,          // L : côté B / U : côté central
+    sideC_m: 0,          // U uniquement : côté droit
+    mattressLength_m: 1.9, // longueur d’un matelas (m)
     hasSmallTable: false,
     hasBigTable: false,
     needsDelivery: false,
   });
 
-  // Carpet state
+  // --- CARPET ---
   const [carpetData, setCarpetData] = useState({
-    length: 5,
-    width: 4,
+    length: 3,
+    width: 2,
     needsDelivery: false,
   });
 
-  // Curtain state
+  // --- CURTAIN ---
   const [curtainData, setCurtainData] = useState({
     length: 2.5,
     width: 3,
@@ -75,10 +76,42 @@ export default function QuotePage() {
   const [calculatedPrice, setCalculatedPrice] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // --- Calcul géométrique salon (L/U) ---
+  const calcSalonGeometry = (data) => {
+    const COIN_M = 1;
+    const ml = Math.max(0.5, Number(data.mattressLength_m || 1.9));
+
+    const isL = data.shape === "L";
+    const sides = isL
+      ? [
+          { id: "A", len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
+          { id: "B", len: Math.max(0, Number(data.sideB_m || 0)), coinsOnSide: 1 },
+        ]
+      : [
+          { id: "Gauche", len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
+          { id: "Central", len: Math.max(0, Number(data.sideB_m || 0)), coinsOnSide: 2 },
+          { id: "Droit", len: Math.max(0, Number(data.sideC_m || 0)), coinsOnSide: 1 },
+        ];
+
+    const perSide = sides.map((s) => {
+      const effective = Math.max(0, s.len - s.coinsOnSide * COIN_M);
+      const mattresses = effective === 0 ? 0 : Math.ceil(effective / ml);
+      return { ...s, effective, mattresses };
+    });
+
+    const corners = isL ? 1 : 2;
+    const arms = 2;
+    const mattressCount = perSide.reduce((acc, s) => acc + s.mattresses, 0);
+
+    return { corners, arms, mattressCount, perSide, mattressLength_m: ml };
+  };
+
   const calculateSalonPrice = () => {
-    const mattressTotal = salonData.mattressCount * PRICES.salon.mattress;
-    const cornerTotal = salonData.cornerCount * PRICES.salon.corner;
-    const armsTotal = salonData.armCount * PRICES.salon.arms;
+    const geom = calcSalonGeometry(salonData);
+
+    const mattressTotal = geom.mattressCount * PRICES.salon.mattress;
+    const cornerTotal = geom.corners * PRICES.salon.corner;
+    const armsTotal = geom.arms * PRICES.salon.arms;
     const smallTableTotal = salonData.hasSmallTable ? PRICES.salon.smallTable : 0;
     const bigTableTotal = salonData.hasBigTable ? PRICES.salon.bigTable : 0;
     const deliveryTotal = salonData.needsDelivery ? PRICES.salon.delivery : 0;
@@ -89,12 +122,15 @@ export default function QuotePage() {
     return {
       type: "salon",
       breakdown: {
-        matelas: { count: salonData.mattressCount, unitPrice: PRICES.salon.mattress, total: mattressTotal },
-        coins: { count: salonData.cornerCount, unitPrice: PRICES.salon.corner, total: cornerTotal },
-        bras: { count: salonData.armCount, unitPrice: PRICES.salon.arms, total: armsTotal },
+        forme: salonData.shape,
+        cotes: geom.perSide, // [{id, len, effective, mattresses}]
+        matelas: { count: geom.mattressCount, unitPrice: PRICES.salon.mattress, total: mattressTotal },
+        coins: { count: geom.corners, unitPrice: PRICES.salon.corner, total: cornerTotal },
+        bras: { count: geom.arms, unitPrice: PRICES.salon.arms, total: armsTotal },
         petiteTable: { included: salonData.hasSmallTable, total: smallTableTotal },
         grandeTable: { included: salonData.hasBigTable, total: bigTableTotal },
         livraison: { included: salonData.needsDelivery, total: deliveryTotal },
+        params: { mattressLength_m: geom.mattressLength_m },
       },
       subtotal,
       total,
@@ -106,7 +142,6 @@ export default function QuotePage() {
     const subtotal = area * PRICES.carpet.pricePerSqm;
     const deliveryTotal = carpetData.needsDelivery ? PRICES.carpet.delivery : 0;
     const total = subtotal + deliveryTotal;
-
     return {
       type: "carpet",
       breakdown: {
@@ -125,7 +160,6 @@ export default function QuotePage() {
     const subtotal = area * pricePerSqm;
     const deliveryTotal = curtainData.needsDelivery ? PRICES.curtain.delivery : 0;
     const total = subtotal + deliveryTotal;
-
     return {
       type: "curtain",
       breakdown: {
@@ -168,8 +202,7 @@ export default function QuotePage() {
     // Simulate sending email (in production, you'd use a service like EmailJS or Netlify Forms)
     setTimeout(() => {
       toast.success("Demande de devis envoyée avec succès ! Nous vous contacterons bientôt.");
-      setIsSubmitting(false);
-      
+
       // Reset form
       setCustomerInfo({
         name: "",
@@ -179,7 +212,8 @@ export default function QuotePage() {
         notes: "",
       });
       setCalculatedPrice(null);
-    }, 1500);
+      setIsSubmitting(false);
+    }, 1200);
   };
 
   const formatPrice = (price) => {
@@ -187,16 +221,13 @@ export default function QuotePage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-background to-muted/30">
-      {/* Header */}
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="container flex h-16 items-center justify-between">
-          <Link href="/">
-            <a className="flex items-center gap-2">
-              <Sofa className="h-6 w-6 text-orange-600" />
-              <span className="font-bold text-xl">{APP_TITLE}</span>
-            </a>
-          </Link>
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b">
+        <div className="container py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Sofa className="h-6 w-6" />
+            <span className="font-semibold">{APP_TITLE}</span>
+          </div>
           <Link href="/">
             <Button variant="ghost" className="gap-2">
               <ArrowLeft className="h-4 w-4" />
@@ -211,418 +242,454 @@ export default function QuotePage() {
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold">Calculateur de Devis</h1>
             <p className="text-muted-foreground">
-              Obtenez une estimation instantanée pour vos projets de décoration
+              Obtenez une estimation instantanée pour vos salons marocains, tapis et rideaux.
             </p>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs defaultValue="salon" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="salon">Salon</TabsTrigger>
               <TabsTrigger value="carpet">Tapis</TabsTrigger>
               <TabsTrigger value="curtain">Rideaux</TabsTrigger>
             </TabsList>
 
-            {/* Salon Tab */}
+            {/* --- SALON (mis à jour) --- */}
             <TabsContent value="salon" className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration du Salon</CardTitle>
-                  <CardDescription>
-                    Personnalisez votre salon marocain selon vos besoins
-                  </CardDescription>
+                  <CardDescription>Personnalisez votre salon marocain (forme en L ou en U)</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="mattressLength">Longueur des matelas (cm)</Label>
-                      <Input
-                        id="mattressLength"
-                        type="number"
-                        value={salonData.mattressLength}
-                        onChange={(e) => setSalonData({ ...salonData, mattressLength: Number(e.target.value) })}
-                      />
+                      <Label>Forme du salon</Label>
+                      <Select
+                        value={salonData.shape}
+                        onValueChange={(v) => setSalonData({ ...salonData, shape: v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="L">L</SelectItem>
+                          <SelectItem value="U">U</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+
                     <div className="space-y-2">
-                      <Label htmlFor="mattressCount">Nombre de matelas</Label>
+                      <Label>Longueur d’un matelas (m)</Label>
                       <Input
-                        id="mattressCount"
                         type="number"
-                        min="0"
-                        value={salonData.mattressCount}
-                        onChange={(e) => setSalonData({ ...salonData, mattressCount: Number(e.target.value) })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cornerCount">Nombre de coins</Label>
-                      <Input
-                        id="cornerCount"
-                        type="number"
-                        min="0"
-                        value={salonData.cornerCount}
-                        onChange={(e) => setSalonData({ ...salonData, cornerCount: Number(e.target.value) })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="armCount">Nombre de bras</Label>
-                      <Input
-                        id="armCount"
-                        type="number"
-                        min="0"
-                        value={salonData.armCount}
-                        onChange={(e) => setSalonData({ ...salonData, armCount: Number(e.target.value) })}
+                        step="0.1"
+                        min="0.5"
+                        value={salonData.mattressLength_m}
+                        onChange={(e) => setSalonData({ ...salonData, mattressLength_m: Number(e.target.value) })}
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-4">
+                  {salonData.shape === "L" ? (
+                    <div className="grid md:grid-cols-3 gap-6 pt-2">
+                      <div className="space-y-2">
+                        <Label>Côté A (m)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={salonData.sideA_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Côté B (m)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={salonData.sideB_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">Coins (auto)</Label>
+                        <Input value="1" disabled />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid md:grid-cols-4 gap-6 pt-2">
+                      <div className="space-y-2">
+                        <Label>Gauche (m)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={salonData.sideA_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Central (m)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={salonData.sideB_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Droit (m)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={salonData.sideC_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideC_m: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">Coins (auto)</Label>
+                        <Input value="2" disabled />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid md:grid-cols-3 gap-6">
                     <div className="flex items-center space-x-2">
                       <Checkbox
                         id="smallTable"
                         checked={salonData.hasSmallTable}
-                        onCheckedChange={(checked) => setSalonData({ ...salonData, hasSmallTable: checked })}
+                        onCheckedChange={(v) => setSalonData({ ...salonData, hasSmallTable: !!v })}
                       />
-                      <Label htmlFor="smallTable" className="cursor-pointer">
-                        Ajouter une petite table (50 000 FCFA)
-                      </Label>
+                      <Label htmlFor="smallTable">Petite table</Label>
                     </div>
                     <div className="flex items-center space-x-2">
                       <Checkbox
                         id="bigTable"
                         checked={salonData.hasBigTable}
-                        onCheckedChange={(checked) => setSalonData({ ...salonData, hasBigTable: checked })}
+                        onCheckedChange={(v) => setSalonData({ ...salonData, hasBigTable: !!v })}
                       />
-                      <Label htmlFor="bigTable" className="cursor-pointer">
-                        Ajouter une grande table (130 000 FCFA)
-                      </Label>
+                      <Label htmlFor="bigTable">Grande table</Label>
                     </div>
                     <div className="flex items-center space-x-2">
                       <Checkbox
-                        id="salonDelivery"
+                        id="delivery"
                         checked={salonData.needsDelivery}
-                        onCheckedChange={(checked) => setSalonData({ ...salonData, needsDelivery: checked })}
+                        onCheckedChange={(v) => setSalonData({ ...salonData, needsDelivery: !!v })}
                       />
-                      <Label htmlFor="salonDelivery" className="cursor-pointer">
-                        Livraison à Bamako (75 000 FCFA)
-                      </Label>
+                      <Label htmlFor="delivery">Livraison</Label>
                     </div>
                   </div>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Estimation du Prix</CardTitle>
+                  <CardDescription>Calcul selon les dimensions et la forme du salon</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex gap-3">
+                    <Button onClick={handleCalculate} className="gap-2">
+                      <Calculator className="w-4 h-4" /> Calculer
+                    </Button>
+                  </div>
+
+                  {calculatedPrice && calculatedPrice.type === "salon" && (
+                    <div className="space-y-3">
+                      {calculatedPrice.breakdown.cotes?.length > 0 && (
+                        <div className="rounded-md border p-3 text-sm">
+                          <div className="font-medium mb-2">Détail par côté</div>
+                          {calculatedPrice.breakdown.cotes.map((c) => (
+                            <div key={c.id} className="flex justify-between">
+                              <span>
+                                {c.id} : {c.len} m — utile {Number(c.effective).toFixed(2)} m
+                              </span>
+                              <span className="font-medium">Matelas : {c.mattresses}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span>Matelas ({calculatedPrice.breakdown.matelas.count})</span>
+                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.matelas.total)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span>Coins ({calculatedPrice.breakdown.coins.count})</span>
+                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.coins.total)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span>Bras ({calculatedPrice.breakdown.bras.count})</span>
+                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.bras.total)}</span>
+                          </div>
+                          {calculatedPrice.breakdown.petiteTable.included && (
+                            <div className="flex justify-between text-sm">
+                              <span>Petite table</span>
+                              <span className="font-medium">{formatPrice(calculatedPrice.breakdown.petiteTable.total)}</span>
+                            </div>
+                          )}
+                          {calculatedPrice.breakdown.grandeTable.included && (
+                            <div className="flex justify-between text-sm">
+                              <span>Grande table</span>
+                              <span className="font-medium">{formatPrice(calculatedPrice.breakdown.grandeTable.total)}</span>
+                            </div>
+                          )}
+                          {calculatedPrice.breakdown.livraison.included && (
+                            <div className="flex justify-between text-sm">
+                              <span>Livraison</span>
+                              <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col justify-center items-end">
+                          <div className="text-lg font-semibold">Sous-total : {formatPrice(calculatedPrice.subtotal)}</div>
+                          <div className="text-xl font-bold">Total : {formatPrice(calculatedPrice.total)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
-            {/* Carpet Tab */}
+            {/* --- TAPIS --- */}
             <TabsContent value="carpet" className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration du Tapis</CardTitle>
-                  <CardDescription>
-                    Indiquez les dimensions de votre tapis
-                  </CardDescription>
+                  <CardDescription>Calculez la surface et le prix</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="grid md:grid-cols-2 gap-6">
+                  <div className="grid md:grid-cols-3 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="carpetLength">Longueur (mètres)</Label>
+                      <Label>Longueur (m)</Label>
                       <Input
-                        id="carpetLength"
                         type="number"
                         step="0.1"
+                        min="0"
                         value={carpetData.length}
                         onChange={(e) => setCarpetData({ ...carpetData, length: Number(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="carpetWidth">Largeur (mètres)</Label>
+                      <Label>Largeur (m)</Label>
                       <Input
-                        id="carpetWidth"
                         type="number"
                         step="0.1"
+                        min="0"
                         value={carpetData.width}
                         onChange={(e) => setCarpetData({ ...carpetData, width: Number(e.target.value) })}
                       />
                     </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="carpetDelivery"
+                        checked={carpetData.needsDelivery}
+                        onCheckedChange={(v) => setCarpetData({ ...carpetData, needsDelivery: !!v })}
+                      />
+                      <Label htmlFor="carpetDelivery">Livraison</Label>
+                    </div>
                   </div>
 
-                  <div className="p-4 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">
-                      Surface totale: <span className="font-semibold text-foreground">
-                        {(carpetData.length * carpetData.width).toFixed(2)} m²
-                      </span>
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Prix au m²: <span className="font-semibold text-foreground">13 000 FCFA</span>
-                    </p>
+                  <div className="flex gap-3">
+                    <Button onClick={handleCalculate} className="gap-2">
+                      <Calculator className="w-4 h-4" /> Calculer
+                    </Button>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="carpetDelivery"
-                      checked={carpetData.needsDelivery}
-                      onCheckedChange={(checked) => setCarpetData({ ...carpetData, needsDelivery: checked })}
-                    />
-                    <Label htmlFor="carpetDelivery" className="cursor-pointer">
-                      Livraison à Bamako (75 000 FCFA)
-                    </Label>
-                  </div>
+                  {calculatedPrice && calculatedPrice.type === "carpet" && (
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Surface (m²)</span>
+                          <span className="font-medium">
+                            {(carpetData.length * carpetData.width).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Prix / m²</span>
+                          <span className="font-medium">{formatPrice(PRICES.carpet.pricePerSqm)}</span>
+                        </div>
+                        {calculatedPrice.breakdown.livraison.included && (
+                          <div className="flex justify-between text-sm">
+                            <span>Livraison</span>
+                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col justify-center items-end">
+                        <div className="text-lg font-semibold">Sous-total : {formatPrice(calculatedPrice.subtotal)}</div>
+                        <div className="text-xl font-bold">Total : {formatPrice(calculatedPrice.total)}</div>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Curtain Tab */}
+            {/* --- RIDEAUX --- */}
             <TabsContent value="curtain" className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration des Rideaux</CardTitle>
-                  <CardDescription>
-                    Choisissez les dimensions et la qualité de vos rideaux
-                  </CardDescription>
+                  <CardDescription>Choisissez la qualité et mesurez</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="grid md:grid-cols-2 gap-6">
+                  <div className="grid md:grid-cols-4 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="curtainLength">Longueur (mètres)</Label>
+                      <Label>Hauteur (m)</Label>
                       <Input
-                        id="curtainLength"
                         type="number"
                         step="0.1"
+                        min="0"
                         value={curtainData.length}
                         onChange={(e) => setCurtainData({ ...curtainData, length: Number(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="curtainWidth">Largeur (mètres)</Label>
+                      <Label>Largeur (m)</Label>
                       <Input
-                        id="curtainWidth"
                         type="number"
                         step="0.1"
+                        min="0"
                         value={curtainData.width}
                         onChange={(e) => setCurtainData({ ...curtainData, width: Number(e.target.value) })}
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Qualité</Label>
+                      <Select
+                        value={curtainData.quality}
+                        onValueChange={(v) => setCurtainData({ ...curtainData, quality: v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="dubai">Dubai</SelectItem>
+                          <SelectItem value="quality2">Qualité 2</SelectItem>
+                          <SelectItem value="quality3">Qualité 3</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="curtainDelivery"
+                        checked={curtainData.needsDelivery}
+                        onCheckedChange={(v) => setCurtainData({ ...curtainData, needsDelivery: !!v })}
+                      />
+                      <Label htmlFor="curtainDelivery">Livraison</Label>
+                    </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="quality">Qualité</Label>
-                    <Select value={curtainData.quality} onValueChange={(value) => setCurtainData({ ...curtainData, quality: value })}>
-                      <SelectTrigger id="quality">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="dubai">1ère qualité (Dubai) - 6 000 FCFA/m²</SelectItem>
-                        <SelectItem value="quality2">2ème qualité - 4 500 FCFA/m²</SelectItem>
-                        <SelectItem value="quality3">3ème qualité - 4 000 FCFA/m²</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="flex gap-3">
+                    <Button onClick={handleCalculate} className="gap-2">
+                      <Calculator className="w-4 h-4" /> Calculer
+                    </Button>
                   </div>
 
-                  <div className="p-4 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">
-                      Surface totale: <span className="font-semibold text-foreground">
-                        {(curtainData.length * curtainData.width).toFixed(2)} m²
-                      </span>
-                    </p>
-                  </div>
+                  {calculatedPrice && calculatedPrice.type === "curtain" && (
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Surface (m²)</span>
+                          <span className="font-medium">
+                            {(curtainData.length * curtainData.width).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Qualité</span>
+                          <span className="font-medium">{curtainData.quality}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Prix / m²</span>
+                          <span className="font-medium">{formatPrice(PRICES.curtain[curtainData.quality])}</span>
+                        </div>
+                        {calculatedPrice.breakdown.livraison.included && (
+                          <div className="flex justify-between text-sm">
+                            <span>Livraison</span>
+                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
+                          </div>
+                        )}
+                      </div>
 
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="curtainDelivery"
-                      checked={curtainData.needsDelivery}
-                      onCheckedChange={(checked) => setCurtainData({ ...curtainData, needsDelivery: checked })}
-                    />
-                    <Label htmlFor="curtainDelivery" className="cursor-pointer">
-                      Livraison à Bamako (75 000 FCFA)
-                    </Label>
-                  </div>
+                      <div className="flex flex-col justify-center items-end">
+                        <div className="text-lg font-semibold">Sous-total : {formatPrice(calculatedPrice.subtotal)}</div>
+                        <div className="text-xl font-bold">Total : {formatPrice(calculatedPrice.total)}</div>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
 
-          <div className="flex justify-center">
-            <Button
-              size="lg"
-              onClick={handleCalculate}
-              className="gap-2 bg-orange-600 hover:bg-orange-700"
-            >
-              <Calculator className="h-5 w-5" />
-              Calculer le prix
-            </Button>
-          </div>
-
-          {/* Price Display */}
-          {calculatedPrice && (
-            <Card className="border-orange-200 bg-orange-50/50">
-              <CardHeader>
-                <CardTitle className="text-2xl text-orange-900">Estimation du Prix</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+          {/* Infos client */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Vos coordonnées</CardTitle>
+              <CardDescription>Nous vous contacterons avec une offre détaillée</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  {calculatedPrice.type === "salon" && (
-                    <>
-                      {calculatedPrice.breakdown.matelas.count > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Matelas ({calculatedPrice.breakdown.matelas.count})</span>
-                          <span className="font-medium">{formatPrice(calculatedPrice.breakdown.matelas.total)}</span>
-                        </div>
-                      )}
-                      {calculatedPrice.breakdown.coins.count > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Coins ({calculatedPrice.breakdown.coins.count})</span>
-                          <span className="font-medium">{formatPrice(calculatedPrice.breakdown.coins.total)}</span>
-                        </div>
-                      )}
-                      {calculatedPrice.breakdown.bras.count > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span>Bras ({calculatedPrice.breakdown.bras.count})</span>
-                          <span className="font-medium">{formatPrice(calculatedPrice.breakdown.bras.total)}</span>
-                        </div>
-                      )}
-                      {calculatedPrice.breakdown.petiteTable.included && (
-                        <div className="flex justify-between text-sm">
-                          <span>Petite table</span>
-                          <span className="font-medium">{formatPrice(calculatedPrice.breakdown.petiteTable.total)}</span>
-                        </div>
-                      )}
-                      {calculatedPrice.breakdown.grandeTable.included && (
-                        <div className="flex justify-between text-sm">
-                          <span>Grande table</span>
-                          <span className="font-medium">{formatPrice(calculatedPrice.breakdown.grandeTable.total)}</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {calculatedPrice.type === "carpet" && (
-                    <div className="flex justify-between text-sm">
-                      <span>
-                        Tapis ({calculatedPrice.breakdown.dimensions.length}m × {calculatedPrice.breakdown.dimensions.width}m = {calculatedPrice.breakdown.dimensions.area.toFixed(2)}m²)
-                      </span>
-                      <span className="font-medium">{formatPrice(calculatedPrice.subtotal)}</span>
-                    </div>
-                  )}
-
-                  {calculatedPrice.type === "curtain" && (
-                    <div className="flex justify-between text-sm">
-                      <span>
-                        Rideaux ({calculatedPrice.breakdown.dimensions.length}m × {calculatedPrice.breakdown.dimensions.width}m = {calculatedPrice.breakdown.dimensions.area.toFixed(2)}m²)
-                      </span>
-                      <span className="font-medium">{formatPrice(calculatedPrice.subtotal)}</span>
-                    </div>
-                  )}
-
-                  {calculatedPrice.breakdown.livraison.included && (
-                    <div className="flex justify-between text-sm">
-                      <span>Livraison</span>
-                      <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-4 border-t border-orange-200">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-bold text-orange-900">Total</span>
-                    <span className="text-2xl font-bold text-orange-900">{formatPrice(calculatedPrice.total)}</span>
-                  </div>
-                </div>
-
-                <p className="text-xs text-muted-foreground text-center pt-2">
-                  * Prix indicatif. Un devis final sera établi après visite sur place.
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Customer Info Form */}
-          {calculatedPrice && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Vos Coordonnées</CardTitle>
-                <CardDescription>
-                  Laissez-nous vos informations pour recevoir votre devis détaillé
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Nom complet *</Label>
-                    <Input
-                      id="name"
-                      value={customerInfo.name}
-                      onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                      placeholder="Votre nom"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Téléphone *</Label>
-                    <Input
-                      id="phone"
-                      value={customerInfo.phone}
-                      onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                      placeholder="+223 XX XX XX XX"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={customerInfo.email}
-                      onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
-                      placeholder="votre@email.com"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Adresse</Label>
-                    <Input
-                      id="address"
-                      value={customerInfo.address}
-                      onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
-                      placeholder="Votre adresse"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes supplémentaires</Label>
-                  <Textarea
-                    id="notes"
-                    value={customerInfo.notes}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, notes: e.target.value })}
-                    placeholder="Informations complémentaires..."
-                    rows={4}
+                  <Label>Nom</Label>
+                  <Input
+                    value={customerInfo.name}
+                    onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
                   />
                 </div>
-
-                <Button
-                  size="lg"
-                  onClick={handleSubmitQuote}
-                  disabled={isSubmitting}
-                  className="w-full gap-2 bg-orange-600 hover:bg-orange-700"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-background border-t-transparent" />
-                      Envoi en cours...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="h-5 w-5" />
-                      Envoyer la demande de devis
-                    </>
-                  )}
+                <div className="space-y-2">
+                  <Label>Téléphone</Label>
+                  <Input
+                    value={customerInfo.phone}
+                    onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input
+                    value={customerInfo.email}
+                    onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Adresse</Label>
+                  <Input
+                    value={customerInfo.address}
+                    onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Textarea
+                  value={customerInfo.notes}
+                  onChange={(e) => setCustomerInfo({ ...customerInfo, notes: e.target.value })}
+                  placeholder="Informations complémentaires…"
+                />
+              </div>
+              <div className="flex gap-3">
+                <Button onClick={handleSubmitQuote} disabled={isSubmitting} className="gap-2">
+                  <Send className="w-4 h-4" />
+                  Envoyer la demande de devis
                 </Button>
-              </CardContent>
-            </Card>
-          )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t py-8 mt-auto bg-muted/30">
-        <div className="container text-center text-sm text-muted-foreground">
-          <p>&copy; 2025 {APP_TITLE}. Tous droits réservés.</p>
+      <footer className="border-t">
+        <div className="container py-6 text-sm text-muted-foreground">
+          © {new Date().getFullYear()} {APP_TITLE}. Tous droits réservés.
         </div>
       </footer>
     </div>
   );
 }
 
+export default QuotePage;
