@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Calculator, Send, ArrowLeft } from "lucide-react";
+import { Calculator, Send, ArrowLeft, Mail } from "lucide-react";
 import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APP_TITLE, APP_LOGO } from "@/const";
@@ -35,7 +35,6 @@ const COIN_MIN = 0.7;
 const SEAT_DEPTH = 0.7; // m
 
 /* ================== Outils découpe ================== */
-/** Retourne k tel que k*MIN <= L <= k*MAX, proche de L/STD */
 function chooseK(L) {
   if (L < MIN) return 0;
   const kMin = Math.ceil(L / MAX);
@@ -43,26 +42,20 @@ function chooseK(L) {
   if (kMin > kMax) return 0;
   let k = Math.round(L / STD);
   k = Math.max(kMin, Math.min(k, kMax));
-  if (k <= 0) k = kMin; // garde au moins kMin
+  if (k <= 0) k = kMin;
   return k;
 }
-
-/** Distribue L en k segments dans [MIN, MAX], somme exacte = L (remplissage "eau") */
 function distributeSegments(L, k) {
   if (k <= 0) return [];
-  // Base à MIN
   const segs = Array(k).fill(MIN);
-  let rem = L - k * MIN; // >= 0 par construction
+  let rem = L - k * MIN;
 
-  // Étape 1 : tendre vers STD d'abord
-  const targetRaise = Math.max(0, Math.min(STD - MIN, MAX - MIN)); // typiquement 0.5
+  const targetRaise = Math.max(0, Math.min(STD - MIN, MAX - MIN));
   for (let i = 0; i < k && rem > 1e-9; i++) {
     const add = Math.min(targetRaise, rem);
     segs[i] += add;
     rem -= add;
   }
-
-  // Étape 2 : si reste encore, monter uniformément jusqu'à MAX
   let i = 0;
   while (rem > 1e-9) {
     const cap = MAX - segs[i];
@@ -72,35 +65,24 @@ function distributeSegments(L, k) {
       rem -= add;
     }
     i = (i + 1) % k;
-    // sécurité anti-boucle : si rien n'a pu être ajouté dans un tour, on casse
-    if (i === 0 && segs.every(s => Math.abs(s - MAX) < 1e-9)) break;
+    if (i === 0 && segs.every((s) => Math.abs(s - MAX) < 1e-9)) break;
   }
-
-  // Ajustement faible pour la somme exacte (flottants)
   const diff = L - segs.reduce((a, b) => a + b, 0);
   if (Math.abs(diff) > 1e-8) {
     for (let j = 0; j < k; j++) {
-      const room = diff > 0 ? (MAX - segs[j]) : (segs[j] - MIN);
-      if ((diff > 0 && room > 0) || (diff < 0 && room > 0)) {
+      const room = diff > 0 ? MAX - segs[j] : segs[j] - MIN;
+      if (room > 0) {
         const add = Math.sign(diff) * Math.min(Math.abs(diff), room);
         segs[j] += add;
         break;
       }
     }
   }
-  // Clamp final
-  for (let j = 0; j < k; j++) {
-    segs[j] = Math.max(MIN, Math.min(MAX, segs[j]));
-  }
+  for (let j = 0; j < k; j++) segs[j] = Math.max(MIN, Math.min(MAX, segs[j]));
   return segs;
 }
 
-/* ================== Résolution des coins & géométrie ================== */
-/**
- * Pour un L : un coin (taille c ∈ [0.7,1.0]).
- * Pour un U : deux coins égaux (c à gauche = c à droite ∈ [0.7,1.0]).
- * On cherche le plus grand c possible (le moins de réduction), qui permet des segments valides.
- */
+/* ================== Résolution coins & géométrie ================== */
 function solveGeometry(shape, lengths) {
   if (shape === "L") {
     const lenA = lengths.sideA_m;
@@ -112,24 +94,26 @@ function solveGeometry(shape, lengths) {
 
       const kA = chooseK(effA);
       const kB = chooseK(effB);
-      if (kA === 0 && effA >= MIN) continue;
-      if (kB === 0 && effB >= MIN) continue;
+      if ((kA === 0 && effA >= MIN) || (kB === 0 && effB >= MIN)) continue;
 
       const segA = kA ? distributeSegments(effA, kA) : [];
       const segB = kB ? distributeSegments(effB, kB) : [];
 
-      // vérif somme exacte
-      if (Math.abs(effA - segA.reduce((a, b) => a + b, 0)) < 1e-6 &&
-          Math.abs(effB - segB.reduce((a, b) => a + b, 0)) < 1e-6) {
+      const ok =
+        Math.abs(effA - segA.reduce((a, b) => a + b, 0)) < 1e-6 &&
+        Math.abs(effB - segB.reduce((a, b) => a + b, 0)) < 1e-6;
+
+      if (ok) {
         return {
-          coinSize: c,
+          forme: "L",
+          corners: 1,
+          arms: 2,
+          coinLeft: c,  // unique coin
+          coinRight: null,
           perSide: [
             { id: "A", len: lenA, effective: effA, segments: segA, coinsOnSide: 1 },
             { id: "B", len: lenB, effective: effB, segments: segB, coinsOnSide: 1 },
           ],
-          corners: 1,
-          arms: 2,
-          forme: "L",
         };
       }
     }
@@ -138,18 +122,19 @@ function solveGeometry(shape, lengths) {
     const lenC = lengths.sideB_m; // central
     const lenD = lengths.sideC_m; // droit
 
+    // réduction proportionnelle des deux coins du U (gauche & droit = mêmes pas), mais on les expose séparément
     for (let c = COIN_STD; c >= COIN_MIN - 1e-9; c -= 0.01) {
-      const effG = Math.max(0, lenG - c);
-      const effC = Math.max(0, lenC - 2 * c);
-      const effD = Math.max(0, lenD - c);
+      const cL = c;
+      const cR = c;
+
+      const effG = Math.max(0, lenG - cL);
+      const effC = Math.max(0, lenC - (cL + cR));
+      const effD = Math.max(0, lenD - cR);
 
       const kG = chooseK(effG);
       const kC = chooseK(effC);
       const kD = chooseK(effD);
-
-      if ((kG === 0 && effG >= MIN) || (kC === 0 && effC >= MIN) || (kD === 0 && effD >= MIN)) {
-        continue; // pas faisable avec ce c
-      }
+      if ((kG === 0 && effG >= MIN) || (kC === 0 && effC >= MIN) || (kD === 0 && effD >= MIN)) continue;
 
       const segG = kG ? distributeSegments(effG, kG) : [];
       const segC = kC ? distributeSegments(effC, kC) : [];
@@ -162,119 +147,78 @@ function solveGeometry(shape, lengths) {
 
       if (ok) {
         return {
-          coinSize: c,
+          forme: "U",
+          corners: 2,
+          arms: 2,
+          coinLeft: cL,
+          coinRight: cR,
           perSide: [
             { id: "Gauche",  len: lenG, effective: effG, segments: segG, coinsOnSide: 1 },
             { id: "Central", len: lenC, effective: effC, segments: segC, coinsOnSide: 2 },
             { id: "Droit",   len: lenD, effective: effD, segments: segD, coinsOnSide: 1 },
           ],
-          corners: 2,
-          arms: 2,
-          forme: "U",
         };
       }
     }
   }
-
-  // Si aucune solution, retourner géométrie vide
-  return {
-    coinSize: COIN_STD,
-    perSide: [],
-    corners: shape === "L" ? 1 : 2,
-    arms: 2,
-    forme: shape,
-  };
+  // pas de solution
+  return { forme: shape, corners: shape === "L" ? 1 : 2, arms: 2, coinLeft: COIN_STD, coinRight: shape === "U" ? COIN_STD : null, perSide: [] };
 }
 
-/* ================== SVG du salon (échelle serrée) ================== */
+/* ================== SVG (échelle serrée) ================== */
 function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
   const { widthPx, heightPx, scale, rects, coins, tables } = useMemo(() => {
-    const sd = SEAT_DEPTH; // m
-    const c = geom.coinSize;
+    const sd = SEAT_DEPTH;
+    const cL = geom.coinLeft || 0;
+    const cR = geom.coinRight || 0;
 
-    // Longueurs utiles par côté
-    const get = (id) => geom.perSide.find(s => s.id === id);
+    const get = (id) => geom.perSide.find((s) => s.id === id);
 
     let effA=0, effB=0, effG=0, effC=0, effD=0;
-    if (geom.forme === "L") {
-      effA = get("A")?.effective || 0;
-      effB = get("B")?.effective || 0;
-    } else {
-      effG = get("Gauche")?.effective || 0;
-      effC = get("Central")?.effective || 0;
-      effD = get("Droit")?.effective || 0;
-    }
+    if (geom.forme === "L") { effA = get("A")?.effective || 0; effB = get("B")?.effective || 0; }
+    else { effG = get("Gauche")?.effective || 0; effC = get("Central")?.effective || 0; effD = get("Droit")?.effective || 0; }
 
-    // Dimensions du canevas (m) — marges légères
     let widthM, heightM;
     if (geom.forme === "L") {
-      widthM  = c + effA + 0.25;
-      heightM = c + effB + 0.25;
+      widthM = cL + effA + 0.25;
+      heightM = cL + effB + 0.25;
     } else {
-      widthM  = c + effC + c + 0.25;
-      heightM = c + Math.max(effG, effD) + 0.25;
+      widthM = cL + effC + cR + 0.25;
+      heightM = Math.max(cL + effG, cR + effD) + 0.25;
     }
 
     const maxW = 680, maxH = 420;
     const scale = Math.min(maxW / widthM, maxH / heightM);
 
-    const rects = [];
-    const coins = [];
-    const tables = [];
-
-    // Helpers
-    const pushHorizontal = (xStart, yStart, segments) => {
-      let x = xStart;
-      segments.forEach((seg, i) => {
-        rects.push({ x: x * scale, y: yStart * scale, w: seg * scale, h: sd * scale, label: i + 1 });
-        x += seg;
-      });
-    };
-    const pushVertical = (xStart, yStart, segments) => {
-      let y = yStart;
-      segments.forEach((seg, i) => {
-        rects.push({ x: xStart * scale, y: y * scale, w: sd * scale, h: seg * scale, label: i + 1 });
-        y += seg;
-      });
-    };
+    const rects = [], coins = [], tables = [];
+    const pushH = (x, y, segs) => { let X=x; segs.forEach((s,i)=>{rects.push({x:X*scale,y:y*scale,w:s*scale,h:sd*scale,label:i+1}); X+=s;}); };
+    const pushV = (x, y, segs) => { let Y=y; segs.forEach((s,i)=>{rects.push({x:x*scale,y:Y*scale,w:sd*scale,h:s*scale,label:i+1}); Y+=s;}); };
 
     if (geom.forme === "L") {
-      coins.push({ x: 0, y: 0, s: c * scale });
-      pushHorizontal(c, 0, get("A")?.segments || []);
-      pushVertical(0, c, get("B")?.segments || []);
-
-      // Tables près de l'angle
+      coins.push({ x: 0, y: 0, s: cL * scale });
+      pushH(cL, 0, get("A")?.segments || []);
+      pushV(0, cL, get("B")?.segments || []);
+      // tables
       const centers = [
-        { x: (c + 0.7) * scale, y: (c + 0.7) * scale },
-        { x: (c + 1.5) * scale, y: (c + 0.7) * scale },
-        { x: (c + 0.7) * scale, y: (c + 1.5) * scale },
-        { x: (c + 1.5) * scale, y: (c + 1.5) * scale },
+        { x: (cL + 0.7) * scale, y: (cL + 0.7) * scale },
+        { x: (cL + 1.5) * scale, y: (cL + 0.7) * scale },
+        { x: (cL + 0.7) * scale, y: (cL + 1.5) * scale },
+        { x: (cL + 1.5) * scale, y: (cL + 1.5) * scale },
       ];
       let p = 0;
       for (let i = 0; i < bigTableCount && p < centers.length; i++, p++) tables.push({ type: "big", ...centers[p] });
       for (let i = 0; i < smallTableCount && p < centers.length; i++, p++) tables.push({ type: "small", ...centers[p] });
     } else {
-      // Coins
-      coins.push({ x: 0, y: 0, s: c * scale });
-      coins.push({ x: (c + effC) * scale, y: 0, s: c * scale });
+      coins.push({ x: 0, y: 0, s: cL * scale });
+      coins.push({ x: (cL + effC) * scale, y: 0, s: cR * scale });
+      pushH(cL, 0, get("Central")?.segments || []);
+      pushV(0, cL, get("Gauche")?.segments || []);
+      pushV(cL + effC, cR, get("Droit")?.segments || []);
 
-      // Central (horizontal)
-      pushHorizontal(c, 0, get("Central")?.segments || []);
-      // Gauche (vertical)
-      pushVertical(0, c, get("Gauche")?.segments || []);
-      // Droit (vertical)
-      pushVertical(c + effC, c, get("Droit")?.segments || []);
-
-      // Tables centrées dans le U
-      const depthMax = Math.max(effG, effD);
-      const cx = (c + effC / 2) * scale;
-      const cy = (c + Math.min(1.3, depthMax / 2)) * scale;
-      const grid = [
-        { x: cx - 0.8 * scale, y: cy },
-        { x: cx,               y: cy },
-        { x: cx + 0.8 * scale, y: cy },
-        { x: cx,               y: cy + 0.8 * scale },
-      ];
+      const depthMax = Math.max(get("Gauche")?.effective || 0, get("Droit")?.effective || 0);
+      const cx = (cL + effC / 2) * scale;
+      const cy = (Math.max(cL, cR) + Math.min(1.3, depthMax / 2)) * scale;
+      const grid = [{ x: cx - 0.8 * scale, y: cy }, { x: cx, y: cy }, { x: cx + 0.8 * scale, y: cy }, { x: cx, y: cy + 0.8 * scale }];
       let p = 0;
       for (let i = 0; i < bigTableCount && p < grid.length; i++, p++) tables.push({ type: "big", ...grid[p] });
       for (let i = 0; i < smallTableCount && p < grid.length; i++, p++) tables.push({ type: "small", ...grid[p] });
@@ -287,9 +231,7 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
 
   return (
     <svg width={widthPx} height={heightPx} className="rounded-md bg-orange-50/40 border border-orange-100 mx-auto">
-      {coins.map((c, i) => (
-        <rect key={`c-${i}`} x={c.x} y={c.y} width={c.s} height={c.s} fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />
-      ))}
+      {coins.map((c, i) => <rect key={`c-${i}`} x={c.x} y={c.y} width={c.s} height={c.s} fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />)}
       {rects.map((r, i) => (
         <g key={`m-${i}`}>
           <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="6" ry="6" fill="#FFEDD5" stroke="#FB923C" strokeWidth="2" />
@@ -304,8 +246,7 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
           </g>
         ) : (
           <g key={`tb-${i}`}>
-            <rect x={t.x - 0.40 * 100} y={t.y - 0.40 * 100} width={0.80 * 100} height={0.80 * 100} rx="10"
-                  fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <rect x={t.x - 0.40 * 100} y={t.y - 0.40 * 100} width={0.80 * 100} height={0.80 * 100} rx="10" fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
             <text x={t.x} y={t.y + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table G</text>
           </g>
         )
@@ -318,39 +259,28 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
 export default function QuotePage() {
   const [activeTab, setActiveTab] = useState("salon");
 
-  // ---- Salon
   const [salonData, setSalonData] = useState({
-    shape: "U",     // "L" ou "U"
-    sideA_m: 6.6,   // L: côté A / U: gauche (exemple)
-    sideB_m: 4.5,   // L: côté B / U: central (total, coins inclus)
-    sideC_m: 5.2,   // U: droit
-    smallTableCount: 2,
+    shape: "U",
+    sideA_m: 6.6,   // gauche
+    sideB_m: 4.5,   // central (coins inclus)
+    sideC_m: 5.2,   // droit
+    smallTableCount: 1,
     bigTableCount: 1,
   });
 
-  // ---- Tapis & Rideaux (minimal)
   const [carpetData, setCarpetData] = useState({ length: 3, width: 2 });
   const [curtainData, setCurtainData] = useState({ length: 2.5, width: 3, quality: "dubai" });
 
-  // ---- Client
   const [customerInfo, setCustomerInfo] = useState({ name: "", email: "", phone: "", address: "", notes: "" });
-
   const [calculatedPrice, setCalculatedPrice] = useState(null);
+  const [sending, setSending] = useState(false);
 
-  /* ---------- Géométrie (avec ajustement des coins ≥0.70 m) ---------- */
-  const calcSalonGeometry = (data) => {
-    return solveGeometry(data.shape, {
-      sideA_m: Number(data.sideA_m || 0),
-      sideB_m: Number(data.sideB_m || 0),
-      sideC_m: Number(data.sideC_m || 0),
-    });
-  };
+  const calcSalonGeometry = (data) =>
+    solveGeometry(data.shape, { sideA_m: Number(data.sideA_m || 0), sideB_m: Number(data.sideB_m || 0), sideC_m: Number(data.sideC_m || 0) });
 
-  /* ---------- Totaux (affiche uniquement le total) ---------- */
   const calculateSalonPrice = () => {
     const geom = calcSalonGeometry(salonData);
     const mattressCount = geom.perSide.reduce((n, s) => n + s.segments.length, 0);
-
     const total =
       mattressCount * PRICES.salon.mattress +
       geom.corners * PRICES.salon.corner +
@@ -360,52 +290,67 @@ export default function QuotePage() {
       PRICES.salon.deliveryIncluded +
       PRICES.salon.transport +
       PRICES.salon.profitPerSalon;
-
     return { type: "salon", breakdown: { geom }, total };
   };
-
   const calculateCarpetPrice = () => {
     const area = carpetData.length * carpetData.width;
-    const total = area * PRICES.carpet.pricePerSqm + PRICES.carpet.delivery;
-    return { type: "carpet", breakdown: { area }, total };
+    return { type: "carpet", breakdown: { area }, total: area * PRICES.carpet.pricePerSqm + PRICES.carpet.delivery };
   };
-
   const calculateCurtainPrice = () => {
     const area = curtainData.length * curtainData.width;
     const pricePerSqm = PRICES.curtain[curtainData.quality];
-    const total = area * pricePerSqm + PRICES.curtain.delivery;
-    return { type: "curtain", breakdown: { area, quality: curtainData.quality }, total };
+    return { type: "curtain", breakdown: { area, quality: curtainData.quality }, total: area * pricePerSqm + PRICES.curtain.delivery };
   };
 
   const handleCalculate = () => {
-    const r =
-      activeTab === "salon"
-        ? calculateSalonPrice()
-        : activeTab === "carpet"
-        ? calculateCarpetPrice()
-        : calculateCurtainPrice();
-
+    const r = activeTab === "salon" ? calculateSalonPrice() : activeTab === "carpet" ? calculateCarpetPrice() : calculateCurtainPrice();
     setCalculatedPrice(r);
     toast.success("Calcul effectué.");
   };
 
-  const handleSubmitQuote = () => {
-    if (!customerInfo.name || !customerInfo.phone) {
-      toast.error("Veuillez renseigner votre nom et téléphone");
+  const format = (n) => new Intl.NumberFormat("fr-FR").format(n);
+  const price = (n) => `${format(n)} FCFA`;
+
+  // ---------- ENVOI EMAIL ----------
+  const sendEmail = async () => {
+    if (!customerInfo.name || !customerInfo.phone || !customerInfo.email) {
+      toast.error("Nom, téléphone et e-mail du client sont requis.");
       return;
     }
-    if (!calculatedPrice) {
-      toast.error("Veuillez d'abord calculer le devis");
+    if (!calculatedPrice || calculatedPrice.type !== "salon") {
+      toast.error("Calculez d’abord le devis du salon.");
       return;
     }
-    toast.success("Demande de devis envoyée. Nous vous contacterons bientôt.");
-    setCustomerInfo({ name: "", email: "", phone: "", address: "", notes: "" });
-    setCalculatedPrice(null);
+    setSending(true);
+    try {
+      const geom = calculatedPrice.breakdown.geom;
+      const payload = {
+        customer: customerInfo,
+        totals: { total: calculatedPrice.total },
+        project: {
+          shape: salonData.shape,
+          sides: salonData,
+          coinLeft: geom.coinLeft ?? null,
+          coinRight: geom.coinRight ?? null,
+          perSide: geom.perSide.map((s) => ({ id: s.id, effective: s.effective, segments: s.segments })),
+          tables: { small: salonData.smallTableCount, big: salonData.bigTableCount },
+        },
+      };
+      const res = await fetch("/api/send-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success("Demande envoyée par e-mail. Un accusé vous a été expédié.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Échec d’envoi du mail. Vérifiez la configuration serveur.");
+    } finally {
+      setSending(false);
+    }
   };
 
-  const formatPrice = (price) => new Intl.NumberFormat("fr-FR").format(price) + " FCFA";
-
-  /* ------------------ UI ------------------ */
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b">
@@ -415,10 +360,7 @@ export default function QuotePage() {
             <span className="font-semibold">{APP_TITLE}</span>
           </div>
           <Link href="/">
-            <Button variant="ghost" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Retour
-            </Button>
+            <Button variant="ghost" className="gap-2"><ArrowLeft className="h-4 w-4" />Retour</Button>
           </Link>
         </div>
       </header>
@@ -427,7 +369,7 @@ export default function QuotePage() {
         <div className="max-w-5xl mx-auto space-y-8">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold">Calculateur de Devis</h1>
-            <p className="text-muted-foreground">Configurez votre projet, visualisez le plan de matelas et obtenez le total.</p>
+            <p className="text-muted-foreground">Configurez votre projet, visualisez le plan et obtenez le total.</p>
           </div>
 
           <Tabs defaultValue="salon" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -449,79 +391,58 @@ export default function QuotePage() {
                     <div className="grid md:grid-cols-3 gap-6">
                       <div className="space-y-2">
                         <Label>Forme du salon</Label>
-                        <Select value={salonData.shape} onValueChange={(v) => setSalonData({ ...salonData, shape: v })}>
+                        <Select value={salonData.shape} onValueChange={(v)=>setSalonData({...salonData,shape:v})}>
                           <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="L">L</SelectItem>
-                            <SelectItem value="U">U</SelectItem>
-                          </SelectContent>
+                          <SelectContent><SelectItem value="L">L</SelectItem><SelectItem value="U">U</SelectItem></SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
                         <Label>Côté A (m)</Label>
-                        <Input type="number" step="0.1" min="0" value={salonData.sideA_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}/>
+                        <Input type="number" step="0.1" min="0" value={salonData.sideA_m} onChange={(e)=>setSalonData({...salonData,sideA_m:Number(e.target.value)})}/>
                       </div>
                       <div className="space-y-2">
                         <Label>Côté B (m)</Label>
-                        <Input type="number" step="0.1" min="0" value={salonData.sideB_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}/>
+                        <Input type="number" step="0.1" min="0" value={salonData.sideB_m} onChange={(e)=>setSalonData({...salonData,sideB_m:Number(e.target.value)})}/>
                       </div>
                     </div>
                   ) : (
                     <div className="grid md:grid-cols-4 gap-6">
                       <div className="space-y-2">
                         <Label>Forme du salon</Label>
-                        <Select value={salonData.shape} onValueChange={(v) => setSalonData({ ...salonData, shape: v })}>
+                        <Select value={salonData.shape} onValueChange={(v)=>setSalonData({...salonData,shape:v})}>
                           <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="L">L</SelectItem>
-                            <SelectItem value="U">U</SelectItem>
-                          </SelectContent>
+                          <SelectContent><SelectItem value="L">L</SelectItem><SelectItem value="U">U</SelectItem></SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
                         <Label>Gauche (m)</Label>
-                        <Input type="number" step="0.1" min="0" value={salonData.sideA_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}/>
+                        <Input type="number" step="0.1" min="0" value={salonData.sideA_m} onChange={(e)=>setSalonData({...salonData,sideA_m:Number(e.target.value)})}/>
                       </div>
                       <div className="space-y-2">
                         <Label>Central (m)</Label>
-                        <Input type="number" step="0.1" min="0" value={salonData.sideB_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}/>
+                        <Input type="number" step="0.1" min="0" value={salonData.sideB_m} onChange={(e)=>setSalonData({...salonData,sideB_m:Number(e.target.value)})}/>
                       </div>
-                      <div className="space-y-2">
+                      <div className="spacey-2">
                         <Label>Droit (m)</Label>
-                        <Input type="number" step="0.1" min="0" value={salonData.sideC_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideC_m: Number(e.target.value) })}/>
+                        <Input type="number" step="0.1" min="0" value={salonData.sideC_m} onChange={(e)=>setSalonData({...salonData,sideC_m:Number(e.target.value)})}/>
                       </div>
                     </div>
                   )}
 
-                  {/* Nombre de tables */}
+                  {/* Tables */}
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <Label>Petites tables (0–3)</Label>
-                      <Select value={String(salonData.smallTableCount)} onValueChange={(v) => setSalonData({ ...salonData, smallTableCount: Number(v) })}>
+                      <Select value={String(salonData.smallTableCount)} onValueChange={(v)=>setSalonData({...salonData,smallTableCount:Number(v)})}>
                         <SelectTrigger><SelectValue placeholder="0" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="0">0</SelectItem>
-                          <SelectItem value="1">1</SelectItem>
-                          <SelectItem value="2">2</SelectItem>
-                          <SelectItem value="3">3</SelectItem>
-                        </SelectContent>
+                        <SelectContent>{["0","1","2","3"].map(v=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
                       <Label>Grandes tables (0–3)</Label>
-                      <Select value={String(salonData.bigTableCount)} onValueChange={(v) => setSalonData({ ...salonData, bigTableCount: Number(v) })}>
+                      <Select value={String(salonData.bigTableCount)} onValueChange={(v)=>setSalonData({...salonData,bigTableCount:Number(v)})}>
                         <SelectTrigger><SelectValue placeholder="0" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="0">0</SelectItem>
-                          <SelectItem value="1">1</SelectItem>
-                          <SelectItem value="2">2</SelectItem>
-                          <SelectItem value="3">3</SelectItem>
-                        </SelectContent>
+                        <SelectContent>{["0","1","2","3"].map(v=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                   </div>
@@ -531,12 +452,13 @@ export default function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Résultat</CardTitle>
-                  <CardDescription>Plan de matelas, détail par côté & total</CardDescription>
+                  <CardDescription>Plan, détail par côté, tailles des coins & total</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="flex gap-3">
-                    <Button onClick={handleCalculate} className="gap-2">
-                      <Calculator className="w-4 h-4" /> Calculer
+                  <div className="flex flex-wrap gap-3">
+                    <Button onClick={handleCalculate} className="gap-2"><Calculator className="w-4 h-4" />Calculer</Button>
+                    <Button onClick={sendEmail} disabled={sending} variant="secondary" className="gap-2">
+                      <Mail className="w-4 h-4" /> Envoyer la demande par e-mail
                     </Button>
                   </div>
 
@@ -548,12 +470,18 @@ export default function QuotePage() {
                         bigTableCount={salonData.bigTableCount}
                       />
 
-                      {/* Détail des matelas par côté (sans prix) */}
+                      {/* Tailles coins */}
+                      <div className="rounded-md bg-orange-50/40 border border-orange-100 p-3 text-sm">
+                        {calculatedPrice.breakdown.geom.forme === "L" ? (
+                          <div><strong>Coin</strong> : {calculatedPrice.breakdown.geom.coinLeft.toFixed(2)} m</div>
+                        ) : (
+                          <div><strong>Coins</strong> : gauche {calculatedPrice.breakdown.geom.coinLeft.toFixed(2)} m • droit {calculatedPrice.breakdown.geom.coinRight.toFixed(2)} m</div>
+                        )}
+                      </div>
+
+                      {/* Détail des matelas par côté */}
                       <div className="rounded-md border p-4 text-sm space-y-3">
                         <div className="font-medium">Détail des matelas</div>
-                        <div className="text-muted-foreground">
-                          Coin(s) utilisés : {calculatedPrice.breakdown.geom.coinSize.toFixed(2)} m
-                        </div>
                         {calculatedPrice.breakdown.geom.perSide.map((side) => (
                           <div key={side.id} className="flex flex-wrap items-center gap-2">
                             <span className="w-28">{side.id}</span>
@@ -561,18 +489,15 @@ export default function QuotePage() {
                             <span className="mx-1">•</span>
                             <span>{side.segments.length} matelas :</span>
                             {side.segments.map((len, i) => (
-                              <span key={i} className="px-2 py-0.5 rounded bg-orange-50 border border-orange-100">
-                                {len.toFixed(2)} m
-                              </span>
+                              <span key={i} className="px-2 py-0.5 rounded bg-orange-50 border border-orange-100">{len.toFixed(2)} m</span>
                             ))}
                           </div>
                         ))}
                       </div>
 
+                      {/* Total */}
                       <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
-                        <div className="text-2xl font-extrabold text-orange-700">
-                          Total : {formatPrice(calculatedPrice.total)}
-                        </div>
+                        <div className="text-2xl font-extrabold text-orange-700">Total : {price(calculatedPrice.total)}</div>
                       </div>
                     </div>
                   )}
@@ -583,39 +508,16 @@ export default function QuotePage() {
             {/* TAPIS */}
             <TabsContent value="carpet" className="space-y-6">
               <Card>
-                <CardHeader>
-                  <CardTitle>Configuration du Tapis</CardTitle>
-                  <CardDescription>Surface et total</CardDescription>
-                </CardHeader>
+                <CardHeader><CardTitle>Configuration du Tapis</CardTitle><CardDescription>Surface et total</CardDescription></CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label>Longueur (m)</Label>
-                      <Input type="number" step="0.1" min="0"
-                        value={carpetData.length}
-                        onChange={(e) => setCarpetData({ ...carpetData, length: Number(e.target.value) })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Largeur (m)</Label>
-                      <Input type="number" step="0.1" min="0"
-                        value={carpetData.width}
-                        onChange={(e) => setCarpetData({ ...carpetData, width: Number(e.target.value) })}
-                      />
-                    </div>
+                    <div className="space-y-2"><Label>Longueur (m)</Label><Input type="number" step="0.1" min="0" value={carpetData.length} onChange={(e)=>setCarpetData({...carpetData,length:Number(e.target.value)})}/></div>
+                    <div className="space-y-2"><Label>Largeur (m)</Label><Input type="number" step="0.1" min="0" value={carpetData.width} onChange={(e)=>setCarpetData({...carpetData,width:Number(e.target.value)})}/></div>
                   </div>
-
-                  <div className="flex gap-3">
-                    <Button onClick={handleCalculate} className="gap-2">
-                      <Calculator className="w-4 h-4" /> Calculer
-                    </Button>
-                  </div>
-
+                  <div className="flex gap-3"><Button onClick={handleCalculate} className="gap-2"><Calculator className="w-4 h-4" />Calculer</Button></div>
                   {calculatedPrice && calculatedPrice.type === "carpet" && (
                     <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
-                      <div className="text-2xl font-extrabold text-orange-700">
-                        Total : {formatPrice(calculatedPrice.total)}
-                      </div>
+                      <div className="text-2xl font-extrabold text-orange-700">Total : {price(calculatedPrice.total)}</div>
                     </div>
                   )}
                 </CardContent>
@@ -625,50 +527,23 @@ export default function QuotePage() {
             {/* RIDEAUX */}
             <TabsContent value="curtain" className="space-y-6">
               <Card>
-                <CardHeader>
-                  <CardTitle>Configuration des Rideaux</CardTitle>
-                  <CardDescription>Dimensions, qualité et total</CardDescription>
-                </CardHeader>
+                <CardHeader><CardTitle>Configuration des Rideaux</CardTitle><CardDescription>Dimensions, qualité et total</CardDescription></CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-4 gap-6">
-                    <div className="space-y-2">
-                      <Label>Hauteur (m)</Label>
-                      <Input type="number" step="0.1" min="0"
-                        value={curtainData.length}
-                        onChange={(e) => setCurtainData({ ...curtainData, length: Number(e.target.value) })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Largeur (m)</Label>
-                      <Input type="number" step="0.1" min="0"
-                        value={curtainData.width}
-                        onChange={(e) => setCurtainData({ ...curtainData, width: Number(e.target.value) })}
-                      />
-                    </div>
+                    <div className="space-y-2"><Label>Hauteur (m)</Label><Input type="number" step="0.1" min="0" value={curtainData.length} onChange={(e)=>setCurtainData({...curtainData,length:Number(e.target.value)})}/></div>
+                    <div className="space-y-2"><Label>Largeur (m)</Label><Input type="number" step="0.1" min="0" value={curtainData.width} onChange={(e)=>setCurtainData({...curtainData,width:Number(e.target.value)})}/></div>
                     <div className="space-y-2">
                       <Label>Qualité</Label>
-                      <Select value={curtainData.quality} onValueChange={(v) => setCurtainData({ ...curtainData, quality: v })}>
+                      <Select value={curtainData.quality} onValueChange={(v)=>setCurtainData({...curtainData,quality:v})}>
                         <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="dubai">Dubai</SelectItem>
-                          <SelectItem value="quality2">Qualité 2</SelectItem>
-                          <SelectItem value="quality3">Qualité 3</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="dubai">Dubai</SelectItem><SelectItem value="quality2">Qualité 2</SelectItem><SelectItem value="quality3">Qualité 3</SelectItem></SelectContent>
                       </Select>
                     </div>
                   </div>
-
-                  <div className="flex gap-3">
-                    <Button onClick={handleCalculate} className="gap-2">
-                      <Calculator className="w-4 h-4" /> Calculer
-                    </Button>
-                  </div>
-
+                  <div className="flex gap-3"><Button onClick={handleCalculate} className="gap-2"><Calculator className="w-4 h-4" />Calculer</Button></div>
                   {calculatedPrice && calculatedPrice.type === "curtain" && (
                     <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
-                      <div className="text-2xl font-extrabold text-orange-700">
-                        Total : {formatPrice(calculatedPrice.total)}
-                      </div>
+                      <div className="text-2xl font-extrabold text-orange-700">Total : {price(calculatedPrice.total)}</div>
                     </div>
                   )}
                 </CardContent>
@@ -676,40 +551,19 @@ export default function QuotePage() {
             </TabsContent>
           </Tabs>
 
-          {/* Coordonnées */}
+          {/* Coordonnées client */}
           <Card>
-            <CardHeader>
-              <CardTitle>Vos coordonnées</CardTitle>
-              <CardDescription>Nous vous contacterons pour finaliser l’offre</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Vos coordonnées</CardTitle><CardDescription>Nous vous contacterons pour finaliser l’offre</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label>Nom</Label>
-                  <Input value={customerInfo.name} onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Téléphone</Label>
-                  <Input value={customerInfo.phone} onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input value={customerInfo.email} onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Adresse</Label>
-                  <Input value={customerInfo.address} onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })} />
-                </div>
+                <div className="space-y-2"><Label>Nom</Label><Input value={customerInfo.name} onChange={(e)=>setCustomerInfo({...customerInfo,name:e.target.value})}/></div>
+                <div className="space-y-2"><Label>Téléphone</Label><Input value={customerInfo.phone} onChange={(e)=>setCustomerInfo({...customerInfo,phone:e.target.value})}/></div>
+                <div className="space-y-2"><Label>Email</Label><Input value={customerInfo.email} onChange={(e)=>setCustomerInfo({...customerInfo,email:e.target.value})}/></div>
+                <div className="space-y-2"><Label>Adresse</Label><Input value={customerInfo.address} onChange={(e)=>setCustomerInfo({...customerInfo,address:e.target.value})}/></div>
               </div>
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <Textarea value={customerInfo.notes} onChange={(e) => setCustomerInfo({ ...customerInfo, notes: e.target.value })} placeholder="Informations complémentaires…" />
-              </div>
+              <div className="space-y-2"><Label>Notes</Label><Textarea value={customerInfo.notes} onChange={(e)=>setCustomerInfo({...customerInfo,notes:e.target.value})} placeholder="Informations complémentaires…"/></div>
               <div className="flex gap-3">
-                <Button onClick={handleSubmitQuote} className="gap-2">
-                  <Send className="w-4 h-4" />
-                  Envoyer la demande de devis
-                </Button>
+                <Button onClick={sendEmail} disabled={sending} className="gap-2"><Send className="w-4 h-4" /> Envoyer la demande par e-mail</Button>
               </div>
             </CardContent>
           </Card>
