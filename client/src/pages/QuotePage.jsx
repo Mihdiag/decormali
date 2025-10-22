@@ -19,9 +19,9 @@ const PRICES = {
     arms: 96000,
     smallTable: 50000,
     bigTable: 130000,
-    deliveryIncluded: 75000,   // incluse d’office
-    transport: 425000,         // ajouté d’office
-    profitPerSalon: 500000,    // ajouté d’office
+    deliveryIncluded: 75000,
+    transport: 425000,
+    profitPerSalon: 500000,
   },
   carpet: { pricePerSqm: 13000, delivery: 75000 },
   curtain: { dubai: 6000, quality2: 4500, quality3: 4000, delivery: 75000 },
@@ -29,19 +29,18 @@ const PRICES = {
 
 const STD_MATTRESS = 1.9; // m
 const MIN_MATTRESS = 1.4; // m
+const MAX_MATTRESS = 2.4; // m
 
 /* ================== SVG du salon ================== */
 function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
-  // Tout est calculé en mètres puis converti en px (scale)
   const { widthPx, heightPx, scale, rects, coinSquares, tables } = useMemo(() => {
-    const sd = depth; // m (épaisseur d’assise)
+    const sd = depth; // m
     const sides = geom.perSide;
 
-    // Étendue approximative pour mise à l’échelle
     const leftLen   = (sides.find(s => s.id === "B" || s.id === "Gauche")?.len || 0);
     const rightLen  = (sides.find(s => s.id === "Droit")?.len || 0);
     const topLen    = (sides.find(s => s.id === "A" || s.id === "Central")?.len || 0);
-    const widthM  = 2 + topLen;      // 2m ≈ coins
+    const widthM  = 2 + topLen;
     const heightM = 2 + Math.max(leftLen, rightLen);
 
     const maxW = 680, maxH = 420;
@@ -51,7 +50,6 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
     const coinSquares = [];
     const tables = [];
 
-    // Helpers (en mètres)
     const pushHorizontal = (xStart, yStart, segments) => {
       let x = xStart;
       segments.forEach((seg, i) => {
@@ -67,20 +65,15 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
       });
     };
 
-    // ===== Coins & segments =====
     if (geom.forme === "L") {
-      const sideA = sides.find(s => s.id === "A");       // horizontal
-      const sideB = sides.find(s => s.id === "B");       // vertical
+      const sideA = sides.find(s => s.id === "A");
+      const sideB = sides.find(s => s.id === "B");
 
-      // Coins 1x1 (en mètres)
       coinSquares.push({ xm: 0, ym: 0, sm: 1 });
-
-      // A : de x=1 à x=1+effective, y=0
       pushHorizontal(1, 0, sideA?.segments || []);
-      // B : de y=1 à y=1+effective, x=0
       pushVertical(0, 1, sideB?.segments || []);
 
-      // ===== Tables (positions en m, centrées dans l’angle) =====
+      // Tables (proche de l'angle intérieur)
       const centers = [
         { xm: 1 + 0.7, ym: 1 + 0.7 },
         { xm: 1 + 1.5, ym: 1 + 0.7 },
@@ -95,23 +88,18 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
         tables.push({ type: "small", ...centers[placed] });
       }
     } else {
-      const sideG = sides.find(s => s.id === "Gauche");  // vertical gauche
-      const sideC = sides.find(s => s.id === "Central"); // horizontal haut
-      const sideD = sides.find(s => s.id === "Droit");   // vertical droit
+      const sideG = sides.find(s => s.id === "Gauche");
+      const sideC = sides.find(s => s.id === "Central");
+      const sideD = sides.find(s => s.id === "Droit");
 
-      // Deux coins : (0,0) et (1 + central.effective, 0)
       const effC = Math.max(0, sideC?.effective || 0);
       coinSquares.push({ xm: 0, ym: 0, sm: 1 });
       coinSquares.push({ xm: 1 + effC, ym: 0, sm: 1 });
 
-      // Central : horizontal entre les deux coins
       pushHorizontal(1, 0, sideC?.segments || []);
-      // Gauche : vertical sous le coin gauche
       pushVertical(0, 1, sideG?.segments || []);
-      // Droit : vertical sous le bord interne du coin droit
       pushVertical(1 + effC, 1, sideD?.segments || []);
 
-      // ===== Tables (au centre du U) =====
       const depthMax = Math.max(sideG?.effective || 0, sideD?.effective || 0);
       const cxBase = 1 + effC / 2;
       const cyBase = 1 + Math.min(1.3, depthMax / 2);
@@ -139,12 +127,10 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
 
   return (
     <svg width={widthPx} height={heightPx} className="rounded-md bg-orange-50/40 border border-orange-100 mx-auto">
-      {/* Coins */}
       {coinSquares.map((c, i) => (
         <rect key={`c-${i}`} x={c.xm * scale} y={c.ym * scale} width={c.sm * scale} height={c.sm * scale}
               fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />
       ))}
-      {/* Matelas : segments consécutifs sans espace */}
       {rects.map((r, i) => (
         <g key={`m-${i}`}>
           <rect x={r.xm * scale} y={r.ym * scale} width={r.wm * scale} height={r.hm * scale}
@@ -196,29 +182,32 @@ export default function QuotePage() {
   const [customerInfo, setCustomerInfo] = useState({ name: "", email: "", phone: "", address: "", notes: "" });
 
   const [calculatedPrice, setCalculatedPrice] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  /* ---------- Algorithme de découpe sans matelas < 1,40 m ---------- */
-  const splitIntoMattresses = (effectiveLen) => {
-    if (effectiveLen <= 0) return [];
+  /* ---------- Découpe dans [1.40, 2.40] avec redistribution ---------- */
+  const splitIntoMattresses = (L) => {
+    if (L <= 0) return [];
+    if (L < MIN_MATTRESS) return []; // rien si tout le côté est trop court
 
-    // cas simple : longueur entre 1.40 et 1.90 -> un seul matelas
-    if (effectiveLen < STD_MATTRESS) {
-      return effectiveLen >= MIN_MATTRESS ? [effectiveLen] : [];
+    // k doit vérifier : 1.4*k <= L <= 2.4*k
+    const kMin = Math.ceil(L / MAX_MATTRESS);
+    const kMax = Math.floor(L / MIN_MATTRESS);
+    let k = Math.round(L / STD_MATTRESS);
+    k = Math.max(kMin, Math.min(k, kMax));
+    if (k <= 0) k = 1;
+
+    // Répartition quasi-égale (proportionnelle), proche de 1.90
+    const base = L / k; // ∈ [1.4, 2.4]
+    const segments = Array(k).fill(base);
+
+    // Ajustement numérique pour somme exacte
+    const sum = segments.reduce((a, b) => a + b, 0);
+    const diff = L - sum;
+    segments[0] += diff; // correction minime
+    // clamp de sécurité
+    for (let i = 0; i < segments.length; i++) {
+      segments[i] = Math.max(MIN_MATTRESS, Math.min(MAX_MATTRESS, segments[i]));
     }
-
-    // tant que > 1.9, on pré-alloue des 1.9
-    const nStd = Math.floor(effectiveLen / STD_MATTRESS);
-    const remainder = effectiveLen - nStd * STD_MATTRESS;
-
-    if (remainder >= MIN_MATTRESS) {
-      // on garde le reliquat comme dernier matelas
-      return Array(nStd).fill(STD_MATTRESS).concat([remainder]);
-    }
-
-    // sinon, on répartit proport. le reliquat sur les nStd pièces
-    const delta = remainder / nStd;
-    return Array.from({ length: nStd }, () => STD_MATTRESS + delta);
+    return segments;
   };
 
   /* ---------- Géométrie salon L / U ---------- */
@@ -239,7 +228,7 @@ export default function QuotePage() {
 
     const perSide = sides.map((s) => {
       const effective = Math.max(0, s.len - s.coinsOnSide * COIN_M);
-      const segments = splitIntoMattresses(effective); // somme = effective, sans espace
+      const segments = splitIntoMattresses(effective); // sans espace, bornés
       return { ...s, effective, segments, mattresses: segments.length };
     });
 
@@ -458,7 +447,7 @@ export default function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Résultat</CardTitle>
-                  <CardDescription>Plan de matelas et total</CardDescription>
+                  <CardDescription>Plan de matelas, détail par côté & total</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-3">
@@ -469,12 +458,32 @@ export default function QuotePage() {
 
                   {calculatedPrice && calculatedPrice.type === "salon" && (
                     <div className="space-y-6">
+                      {/* Schéma */}
                       <SalonDiagram
                         geom={calculatedPrice.breakdown.geom}
                         smallTableCount={salonData.smallTableCount}
                         bigTableCount={salonData.bigTableCount}
                       />
 
+                      {/* Détail des matelas par côté (tailles) */}
+                      <div className="rounded-md border p-4 text-sm space-y-3">
+                        <div className="font-medium">Détail des matelas</div>
+                        {calculatedPrice.breakdown.geom.perSide.map((side) => (
+                          <div key={side.id} className="flex flex-wrap items-center gap-2">
+                            <span className="w-28">{side.id}</span>
+                            <span className="text-muted-foreground">utile&nbsp;: {side.effective.toFixed(2)}&nbsp;m</span>
+                            <span className="mx-1">•</span>
+                            <span>{side.segments.length} matelas :</span>
+                            {side.segments.map((len, i) => (
+                              <span key={i} className="px-2 py-0.5 rounded bg-orange-50 border border-orange-100">
+                                {len.toFixed(2)} m
+                              </span>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Total (sans détail de prix) */}
                       <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
                         <div className="text-2xl font-extrabold text-orange-700">
                           Total : {formatPrice(calculatedPrice.total)}
