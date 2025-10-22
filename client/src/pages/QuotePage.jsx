@@ -363,7 +363,7 @@ export default function QuotePage() {
     const sides = g.perSide
       .map(s => `\n- ${s.id} utile ${s.effective.toFixed(2)} m | ${s.segments.length} matelas: ${s.segments.map(v=>v.toFixed(2)).join(" , ")} m`)
       .join("");
-    const total = `\n\nTotal: ${price(calculatedPrice.total)} (livraison, transport et bénéfice inclus)`;
+    const total = `\n\nTotal: ${price(calculatedPrice.total)} (Tous frais compris)`;
 
     return `${header}${client}${shape}${coins}${tables}${sides}${total}\n\nMerci.`;
   };
