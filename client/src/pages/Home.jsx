@@ -2,7 +2,90 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_TITLE, APP_LOGO } from "@/const";
 import { Link } from "wouter";
-import { Sofa, Ruler, Package, Phone, MapPin, Facebook, Instagram, Mail, MessageCircle, Clock } from "lucide-react";
+import {
+  Sofa, Ruler, Package, Phone, MapPin, Facebook, Instagram, Mail, MessageCircle, Clock, ArrowRight
+} from "lucide-react";
+
+/** Pied de page réutilisable */
+function SiteFooter() {
+  return (
+    <footer className="mt-20 bg-neutral-950 text-neutral-300">
+      <div className="container py-12 grid gap-10 md:grid-cols-4">
+        {/* Brand */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <img src={APP_LOGO} alt="Decor Mali" className="h-10 w-10 rounded-full ring-1 ring-white/20 object-contain" />
+            <span className="font-semibold text-lg">Decor Mali</span>
+          </div>
+          <p className="text-sm text-neutral-400">
+            Salons marocains, tapis & rideaux sur-mesure à Bamako.
+          </p>
+          <div className="flex gap-2">
+            <a href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR" target="_blank" rel="noreferrer"
+               className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 hover:bg-white/10">
+              <Facebook className="h-4 w-4"/>
+            </a>
+            <a href="#" className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 hover:bg-white/10">
+              <Instagram className="h-4 w-4"/>
+            </a>
+          </div>
+        </div>
+
+        {/* Contact */}
+        <div className="space-y-3">
+          <h4 className="font-semibold text-neutral-100">Contact</h4>
+          <ul className="space-y-2 text-sm">
+            <li className="flex items-center gap-2">
+              <Phone className="h-4 w-4 text-orange-500" /> +223 70 93 24 62
+            </li>
+            <li className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-orange-500" /> WhatsApp : +223 70 93 24 62
+            </li>
+            <li className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-orange-500" /> contact@decormali.com
+            </li>
+          </ul>
+        </div>
+
+        {/* Localisation / horaires */}
+        <div className="space-y-3">
+          <h4 className="font-semibold text-neutral-100">Infos</h4>
+          <ul className="space-y-2 text-sm">
+            <li className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-orange-500" /> Bamako, Mali
+            </li>
+            <li className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-orange-500" /> Toujours ouvert
+            </li>
+          </ul>
+        </div>
+
+        {/* Liens rapides */}
+        <div className="space-y-3">
+          <h4 className="font-semibold text-neutral-100">Liens</h4>
+          <div className="flex flex-col gap-2 text-sm">
+            <Link href="/" className="group inline-flex items-center gap-1 hover:text-white">
+              Accueil <ArrowRight className="h-3.5 w-3.5 opacity-60 group-hover:translate-x-0.5 transition" />
+            </Link>
+            <Link href="/quote" className="group inline-flex items-center gap-1 hover:text-white">
+              Demander un devis <ArrowRight className="h-3.5 w-3.5 opacity-60 group-hover:translate-x-0.5 transition" />
+            </Link>
+            <a href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR" target="_blank" rel="noreferrer" className="hover:text-white">
+              Page Facebook
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-white/10">
+        <div className="container py-5 text-xs text-neutral-400 flex flex-col md:flex-row items-center justify-between gap-2">
+          <span>© {new Date().getFullYear()} Decor Mali. Tous droits réservés.</span>
+          <span>Fait avec soin à Bamako.</span>
+        </div>
+      </div>
+    </footer>
+  );
+}
 
 export default function Home() {
   return (
@@ -11,11 +94,7 @@ export default function Home() {
       <header className="border-b bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src={APP_LOGO}
-              alt="Decor Mali"
-              className="h-8 w-8 rounded-full ring-1 ring-muted object-contain"
-            />
+            <img src={APP_LOGO} alt="Decor Mali" className="h-8 w-8 rounded-full ring-1 ring-muted object-contain" />
             <span className="font-bold text-xl">{APP_TITLE}</span>
           </div>
           <div className="flex items-center gap-3">
@@ -46,11 +125,7 @@ export default function Home() {
                   Calculer mon devis
                 </Button>
               </Link>
-              <a
-                href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR" target="_blank" rel="noreferrer">
                 <Button size="lg" variant="outline" className="border-orange-200 hover:bg-orange-50">
                   <Facebook className="mr-2 h-5 w-5" />
                   Facebook
@@ -116,7 +191,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Contact */}
+      {/* Contact (section centrale) */}
       <section className="py-20">
         <div className="container">
           <div className="max-w-2xl mx-auto text-center space-y-6">
@@ -131,12 +206,7 @@ export default function Home() {
                 <span className="font-medium">+223 70 93 24 62</span>
               </a>
 
-              <a
-                href="https://wa.me/22370932462"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 hover:opacity-90"
-              >
+              <a href="https://wa.me/22370932462" target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:opacity-90">
                 <MessageCircle className="h-5 w-5 text-orange-600" />
                 <span className="font-medium">WhatsApp : +223 70 93 24 62</span>
               </a>
@@ -158,11 +228,7 @@ export default function Home() {
             </div>
 
             <div className="flex gap-4 justify-center pt-4">
-              <a
-                href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href="https://www.facebook.com/people/D%C3%A9cor-Mali/61579188246177/?locale=fr_FR" target="_blank" rel="noreferrer">
                 <Button variant="outline" size="icon" className="border-orange-200 hover:bg-orange-50">
                   <Facebook className="h-5 w-5 text-orange-600" />
                 </Button>
@@ -176,11 +242,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t py-8 mt-auto bg-muted/30">
-        <div className="container text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} {APP_TITLE}. Tous droits réservés.</p>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
