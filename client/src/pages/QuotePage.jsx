@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Calculator, Send, ArrowLeft, Mail } from "lucide-react";
+import { Calculator, Send, ArrowLeft, Mail, MessageCircle } from "lucide-react";
 import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APP_TITLE, APP_LOGO } from "@/const";
@@ -33,6 +33,9 @@ const MAX = 2.4;
 const COIN_STD = 1.0;
 const COIN_MIN = 0.7;
 const SEAT_DEPTH = 0.7; // m
+
+/* ==== WhatsApp destinataire Decor Mali (format international sans + ni espaces) ==== */
+const WHATSAPP_PHONE = "22370932462";
 
 /* ================== Outils découpe ================== */
 function chooseK(L) {
@@ -122,10 +125,8 @@ function solveGeometry(shape, lengths) {
     const lenC = lengths.sideB_m; // central
     const lenD = lengths.sideC_m; // droit
 
-    // réduction proportionnelle des deux coins du U (gauche & droit = mêmes pas), mais on les expose séparément
     for (let c = COIN_STD; c >= COIN_MIN - 1e-9; c -= 0.01) {
-      const cL = c;
-      const cR = c;
+      const cL = c, cR = c;
 
       const effG = Math.max(0, lenG - cL);
       const effC = Math.max(0, lenC - (cL + cR));
@@ -161,17 +162,15 @@ function solveGeometry(shape, lengths) {
       }
     }
   }
-  // pas de solution
   return { forme: shape, corners: shape === "L" ? 1 : 2, arms: 2, coinLeft: COIN_STD, coinRight: shape === "U" ? COIN_STD : null, perSide: [] };
 }
 
 /* ================== SVG (échelle serrée) ================== */
 function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
-  const { widthPx, heightPx, scale, rects, coins, tables } = useMemo(() => {
+  const { widthPx, heightPx, rects, coins, tables } = useMemo(() => {
     const sd = SEAT_DEPTH;
     const cL = geom.coinLeft || 0;
     const cR = geom.coinRight || 0;
-
     const get = (id) => geom.perSide.find((s) => s.id === id);
 
     let effA=0, effB=0, effG=0, effC=0, effD=0;
@@ -198,7 +197,6 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
       coins.push({ x: 0, y: 0, s: cL * scale });
       pushH(cL, 0, get("A")?.segments || []);
       pushV(0, cL, get("B")?.segments || []);
-      // tables
       const centers = [
         { x: (cL + 0.7) * scale, y: (cL + 0.7) * scale },
         { x: (cL + 1.5) * scale, y: (cL + 0.7) * scale },
@@ -226,7 +224,7 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
 
     const widthPx = Math.min(maxW, widthM * scale + 4);
     const heightPx = Math.min(maxH, heightM * scale + 4);
-    return { widthPx, heightPx, scale, rects, coins, tables };
+    return { widthPx, heightPx, rects, coins, tables };
   }, [geom, smallTableCount, bigTableCount]);
 
   return (
@@ -241,12 +239,12 @@ function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
       {tables.map((t, i) =>
         t.type === "small" ? (
           <g key={`ts-${i}`}>
-            <circle cx={t.x} cy={t.y} r={0.30 * 100} fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <circle cx={t.x} cy={t.y} r={30} fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
             <text x={t.x} y={t.y + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table S</text>
           </g>
         ) : (
           <g key={`tb-${i}`}>
-            <rect x={t.x - 0.40 * 100} y={t.y - 0.40 * 100} width={0.80 * 100} height={0.80 * 100} rx="10" fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <rect x={t.x - 40} y={t.y - 40} width={80} height={80} rx="10" fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
             <text x={t.x} y={t.y + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table G</text>
           </g>
         )
@@ -311,7 +309,7 @@ export default function QuotePage() {
   const format = (n) => new Intl.NumberFormat("fr-FR").format(n);
   const price = (n) => `${format(n)} FCFA`;
 
-  // ---------- ENVOI EMAIL ----------
+  /* ============ Envoi email (backend /api/send-quote) ============ */
   const sendEmail = async () => {
     if (!customerInfo.name || !customerInfo.phone || !customerInfo.email) {
       toast.error("Nom, téléphone et e-mail du client sont requis.");
@@ -349,6 +347,39 @@ export default function QuotePage() {
     } finally {
       setSending(false);
     }
+  };
+
+  /* ================== Envoi WhatsApp (Click-to-Chat) ================== */
+  const buildWhatsappText = () => {
+    const g = calculatedPrice.breakdown.geom;
+    const header = `Bonjour Decor Mali,\nJe souhaite confirmer ma demande de devis et être contacté(e) pour planifier la visite d'un membre de votre équipe.`;
+    const client =
+      `\n\nClient: ${customerInfo.name}\nTél: ${customerInfo.phone}${customerInfo.email ? `\nEmail: ${customerInfo.email}` : ""}`;
+    const shape = `\n\nProjet Salon: ${salonData.shape}`;
+    const coins = g.forme === "U"
+      ? `\nCoins: gauche ${g.coinLeft.toFixed(2)} m • droit ${g.coinRight.toFixed(2)} m`
+      : `\nCoin: ${g.coinLeft.toFixed(2)} m`;
+    const tables = `\nTables: petites ${salonData.smallTableCount} • grandes ${salonData.bigTableCount}`;
+    const sides = g.perSide
+      .map(s => `\n- ${s.id} utile ${s.effective.toFixed(2)} m | ${s.segments.length} matelas: ${s.segments.map(v=>v.toFixed(2)).join(" , ")} m`)
+      .join("");
+    const total = `\n\nTotal: ${price(calculatedPrice.total)} (livraison, transport et bénéfice inclus)`;
+
+    return `${header}${client}${shape}${coins}${tables}${sides}${total}\n\nMerci.`;
+  };
+
+  const sendWhatsApp = () => {
+    if (!customerInfo.name || !customerInfo.phone) {
+      toast.error("Nom et téléphone du client sont requis.");
+      return;
+    }
+    if (!calculatedPrice || calculatedPrice.type !== "salon") {
+      toast.error("Calculez d’abord le devis du salon.");
+      return;
+    }
+    const text = buildWhatsappText();
+    const url = `https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
   };
 
   return (
@@ -460,6 +491,15 @@ export default function QuotePage() {
                     <Button onClick={sendEmail} disabled={sending} variant="secondary" className="gap-2">
                       <Mail className="w-4 h-4" /> Envoyer la demande par e-mail
                     </Button>
+                    <Button onClick={sendWhatsApp} className="gap-2 bg-green-600 hover:bg-green-700 text-white">
+                      <MessageCircle className="w-4 h-4" /> Envoyer via WhatsApp
+                    </Button>
+                  </div>
+
+                  {/* Indication pour le client */}
+                  <div className="text-sm text-muted-foreground">
+                    Astuce : pour <strong>confirmer rapidement</strong>, vous pouvez envoyer votre demande via WhatsApp.  
+                    Le message précise que vous souhaitez être <strong>contacté pour planifier une visite</strong> d’un membre de notre équipe.
                   </div>
 
                   {calculatedPrice && calculatedPrice.type === "salon" && (
@@ -556,14 +596,15 @@ export default function QuotePage() {
             <CardHeader><CardTitle>Vos coordonnées</CardTitle><CardDescription>Nous vous contacterons pour finaliser l’offre</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2"><Label>Nom</Label><Input value={customerInfo.name} onChange={(e)=>setCustomerInfo({...customerInfo,name:e.target.value})}/></div>
-                <div className="space-y-2"><Label>Téléphone</Label><Input value={customerInfo.phone} onChange={(e)=>setCustomerInfo({...customerInfo,phone:e.target.value})}/></div>
-                <div className="space-y-2"><Label>Email</Label><Input value={customerInfo.email} onChange={(e)=>setCustomerInfo({...customerInfo,email:e.target.value})}/></div>
-                <div className="space-y-2"><Label>Adresse</Label><Input value={customerInfo.address} onChange={(e)=>setCustomerInfo({...customerInfo,address:e.target.value})}/></div>
+                <div className="space-y-2"><Label>Nom</Label><Input value={customerInfo.name} onChange={(e)=>setCustomerInfo({...customerInfo,name:e.target.value})} /></div>
+                <div className="space-y-2"><Label>Téléphone</Label><Input value={customerInfo.phone} onChange={(e)=>setCustomerInfo({...customerInfo,phone:e.target.value})} /></div>
+                <div className="space-y-2"><Label>Email</Label><Input value={customerInfo.email} onChange={(e)=>setCustomerInfo({...customerInfo,email:e.target.value})} /></div>
+                <div className="space-y-2"><Label>Adresse</Label><Input value={customerInfo.address} onChange={(e)=>setCustomerInfo({...customerInfo,address:e.target.value})} /></div>
               </div>
               <div className="space-y-2"><Label>Notes</Label><Textarea value={customerInfo.notes} onChange={(e)=>setCustomerInfo({...customerInfo,notes:e.target.value})} placeholder="Informations complémentaires…"/></div>
               <div className="flex gap-3">
                 <Button onClick={sendEmail} disabled={sending} className="gap-2"><Send className="w-4 h-4" /> Envoyer la demande par e-mail</Button>
+                <Button onClick={sendWhatsApp} className="gap-2 bg-green-600 hover:bg-green-700 text-white"><MessageCircle className="w-4 h-4" /> Envoyer via WhatsApp</Button>
               </div>
             </CardContent>
           </Card>
