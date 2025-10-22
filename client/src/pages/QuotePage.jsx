@@ -27,132 +27,286 @@ const PRICES = {
   curtain: { dubai: 6000, quality2: 4500, quality3: 4000, delivery: 75000 },
 };
 
-const STD_MATTRESS = 1.9; // m
-const MIN_MATTRESS = 1.4; // m
-const MAX_MATTRESS = 2.4; // m
+const STD = 1.9;
+const MIN = 1.4;
+const MAX = 2.4;
+const COIN_STD = 1.0;
+const COIN_MIN = 0.7;
+const SEAT_DEPTH = 0.7; // m
 
-/* ================== SVG du salon ================== */
-function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
-  const { widthPx, heightPx, scale, rects, coinSquares, tables } = useMemo(() => {
-    const sd = depth; // m
-    const sides = geom.perSide;
+/* ================== Outils découpe ================== */
+/** Retourne k tel que k*MIN <= L <= k*MAX, proche de L/STD */
+function chooseK(L) {
+  if (L < MIN) return 0;
+  const kMin = Math.ceil(L / MAX);
+  const kMax = Math.floor(L / MIN);
+  if (kMin > kMax) return 0;
+  let k = Math.round(L / STD);
+  k = Math.max(kMin, Math.min(k, kMax));
+  if (k <= 0) k = kMin; // garde au moins kMin
+  return k;
+}
 
-    const leftLen   = (sides.find(s => s.id === "B" || s.id === "Gauche")?.len || 0);
-    const rightLen  = (sides.find(s => s.id === "Droit")?.len || 0);
-    const topLen    = (sides.find(s => s.id === "A" || s.id === "Central")?.len || 0);
-    const widthM  = 2 + topLen;
-    const heightM = 2 + Math.max(leftLen, rightLen);
+/** Distribue L en k segments dans [MIN, MAX], somme exacte = L (remplissage "eau") */
+function distributeSegments(L, k) {
+  if (k <= 0) return [];
+  // Base à MIN
+  const segs = Array(k).fill(MIN);
+  let rem = L - k * MIN; // >= 0 par construction
+
+  // Étape 1 : tendre vers STD d'abord
+  const targetRaise = Math.max(0, Math.min(STD - MIN, MAX - MIN)); // typiquement 0.5
+  for (let i = 0; i < k && rem > 1e-9; i++) {
+    const add = Math.min(targetRaise, rem);
+    segs[i] += add;
+    rem -= add;
+  }
+
+  // Étape 2 : si reste encore, monter uniformément jusqu'à MAX
+  let i = 0;
+  while (rem > 1e-9) {
+    const cap = MAX - segs[i];
+    if (cap > 0) {
+      const add = Math.min(cap, rem);
+      segs[i] += add;
+      rem -= add;
+    }
+    i = (i + 1) % k;
+    // sécurité anti-boucle : si rien n'a pu être ajouté dans un tour, on casse
+    if (i === 0 && segs.every(s => Math.abs(s - MAX) < 1e-9)) break;
+  }
+
+  // Ajustement faible pour la somme exacte (flottants)
+  const diff = L - segs.reduce((a, b) => a + b, 0);
+  if (Math.abs(diff) > 1e-8) {
+    for (let j = 0; j < k; j++) {
+      const room = diff > 0 ? (MAX - segs[j]) : (segs[j] - MIN);
+      if ((diff > 0 && room > 0) || (diff < 0 && room > 0)) {
+        const add = Math.sign(diff) * Math.min(Math.abs(diff), room);
+        segs[j] += add;
+        break;
+      }
+    }
+  }
+  // Clamp final
+  for (let j = 0; j < k; j++) {
+    segs[j] = Math.max(MIN, Math.min(MAX, segs[j]));
+  }
+  return segs;
+}
+
+/* ================== Résolution des coins & géométrie ================== */
+/**
+ * Pour un L : un coin (taille c ∈ [0.7,1.0]).
+ * Pour un U : deux coins égaux (c à gauche = c à droite ∈ [0.7,1.0]).
+ * On cherche le plus grand c possible (le moins de réduction), qui permet des segments valides.
+ */
+function solveGeometry(shape, lengths) {
+  if (shape === "L") {
+    const lenA = lengths.sideA_m;
+    const lenB = lengths.sideB_m;
+
+    for (let c = COIN_STD; c >= COIN_MIN - 1e-9; c -= 0.01) {
+      const effA = Math.max(0, lenA - c);
+      const effB = Math.max(0, lenB - c);
+
+      const kA = chooseK(effA);
+      const kB = chooseK(effB);
+      if (kA === 0 && effA >= MIN) continue;
+      if (kB === 0 && effB >= MIN) continue;
+
+      const segA = kA ? distributeSegments(effA, kA) : [];
+      const segB = kB ? distributeSegments(effB, kB) : [];
+
+      // vérif somme exacte
+      if (Math.abs(effA - segA.reduce((a, b) => a + b, 0)) < 1e-6 &&
+          Math.abs(effB - segB.reduce((a, b) => a + b, 0)) < 1e-6) {
+        return {
+          coinSize: c,
+          perSide: [
+            { id: "A", len: lenA, effective: effA, segments: segA, coinsOnSide: 1 },
+            { id: "B", len: lenB, effective: effB, segments: segB, coinsOnSide: 1 },
+          ],
+          corners: 1,
+          arms: 2,
+          forme: "L",
+        };
+      }
+    }
+  } else {
+    const lenG = lengths.sideA_m; // gauche
+    const lenC = lengths.sideB_m; // central
+    const lenD = lengths.sideC_m; // droit
+
+    for (let c = COIN_STD; c >= COIN_MIN - 1e-9; c -= 0.01) {
+      const effG = Math.max(0, lenG - c);
+      const effC = Math.max(0, lenC - 2 * c);
+      const effD = Math.max(0, lenD - c);
+
+      const kG = chooseK(effG);
+      const kC = chooseK(effC);
+      const kD = chooseK(effD);
+
+      if ((kG === 0 && effG >= MIN) || (kC === 0 && effC >= MIN) || (kD === 0 && effD >= MIN)) {
+        continue; // pas faisable avec ce c
+      }
+
+      const segG = kG ? distributeSegments(effG, kG) : [];
+      const segC = kC ? distributeSegments(effC, kC) : [];
+      const segD = kD ? distributeSegments(effD, kD) : [];
+
+      const ok =
+        Math.abs(effG - segG.reduce((a, b) => a + b, 0)) < 1e-6 &&
+        Math.abs(effC - segC.reduce((a, b) => a + b, 0)) < 1e-6 &&
+        Math.abs(effD - segD.reduce((a, b) => a + b, 0)) < 1e-6;
+
+      if (ok) {
+        return {
+          coinSize: c,
+          perSide: [
+            { id: "Gauche",  len: lenG, effective: effG, segments: segG, coinsOnSide: 1 },
+            { id: "Central", len: lenC, effective: effC, segments: segC, coinsOnSide: 2 },
+            { id: "Droit",   len: lenD, effective: effD, segments: segD, coinsOnSide: 1 },
+          ],
+          corners: 2,
+          arms: 2,
+          forme: "U",
+        };
+      }
+    }
+  }
+
+  // Si aucune solution, retourner géométrie vide
+  return {
+    coinSize: COIN_STD,
+    perSide: [],
+    corners: shape === "L" ? 1 : 2,
+    arms: 2,
+    forme: shape,
+  };
+}
+
+/* ================== SVG du salon (échelle serrée) ================== */
+function SalonDiagram({ geom, smallTableCount, bigTableCount }) {
+  const { widthPx, heightPx, scale, rects, coins, tables } = useMemo(() => {
+    const sd = SEAT_DEPTH; // m
+    const c = geom.coinSize;
+
+    // Longueurs utiles par côté
+    const get = (id) => geom.perSide.find(s => s.id === id);
+
+    let effA=0, effB=0, effG=0, effC=0, effD=0;
+    if (geom.forme === "L") {
+      effA = get("A")?.effective || 0;
+      effB = get("B")?.effective || 0;
+    } else {
+      effG = get("Gauche")?.effective || 0;
+      effC = get("Central")?.effective || 0;
+      effD = get("Droit")?.effective || 0;
+    }
+
+    // Dimensions du canevas (m) — marges légères
+    let widthM, heightM;
+    if (geom.forme === "L") {
+      widthM  = c + effA + 0.25;
+      heightM = c + effB + 0.25;
+    } else {
+      widthM  = c + effC + c + 0.25;
+      heightM = c + Math.max(effG, effD) + 0.25;
+    }
 
     const maxW = 680, maxH = 420;
     const scale = Math.min(maxW / widthM, maxH / heightM);
 
     const rects = [];
-    const coinSquares = [];
+    const coins = [];
     const tables = [];
 
+    // Helpers
     const pushHorizontal = (xStart, yStart, segments) => {
       let x = xStart;
       segments.forEach((seg, i) => {
-        rects.push({ xm: x, ym: yStart, wm: seg, hm: sd, label: i + 1 });
+        rects.push({ x: x * scale, y: yStart * scale, w: seg * scale, h: sd * scale, label: i + 1 });
         x += seg;
       });
     };
     const pushVertical = (xStart, yStart, segments) => {
       let y = yStart;
       segments.forEach((seg, i) => {
-        rects.push({ xm: xStart, ym: y, wm: sd, hm: seg, label: i + 1 });
+        rects.push({ x: xStart * scale, y: y * scale, w: sd * scale, h: seg * scale, label: i + 1 });
         y += seg;
       });
     };
 
     if (geom.forme === "L") {
-      const sideA = sides.find(s => s.id === "A");
-      const sideB = sides.find(s => s.id === "B");
+      coins.push({ x: 0, y: 0, s: c * scale });
+      pushHorizontal(c, 0, get("A")?.segments || []);
+      pushVertical(0, c, get("B")?.segments || []);
 
-      coinSquares.push({ xm: 0, ym: 0, sm: 1 });
-      pushHorizontal(1, 0, sideA?.segments || []);
-      pushVertical(0, 1, sideB?.segments || []);
-
-      // Tables (proche de l'angle intérieur)
+      // Tables près de l'angle
       const centers = [
-        { xm: 1 + 0.7, ym: 1 + 0.7 },
-        { xm: 1 + 1.5, ym: 1 + 0.7 },
-        { xm: 1 + 0.7, ym: 1 + 1.5 },
-        { xm: 1 + 1.5, ym: 1 + 1.5 },
+        { x: (c + 0.7) * scale, y: (c + 0.7) * scale },
+        { x: (c + 1.5) * scale, y: (c + 0.7) * scale },
+        { x: (c + 0.7) * scale, y: (c + 1.5) * scale },
+        { x: (c + 1.5) * scale, y: (c + 1.5) * scale },
       ];
-      let placed = 0;
-      for (let i = 0; i < bigTableCount && placed < centers.length; i++, placed++) {
-        tables.push({ type: "big", ...centers[placed] });
-      }
-      for (let i = 0; i < smallTableCount && placed < centers.length; i++, placed++) {
-        tables.push({ type: "small", ...centers[placed] });
-      }
+      let p = 0;
+      for (let i = 0; i < bigTableCount && p < centers.length; i++, p++) tables.push({ type: "big", ...centers[p] });
+      for (let i = 0; i < smallTableCount && p < centers.length; i++, p++) tables.push({ type: "small", ...centers[p] });
     } else {
-      const sideG = sides.find(s => s.id === "Gauche");
-      const sideC = sides.find(s => s.id === "Central");
-      const sideD = sides.find(s => s.id === "Droit");
+      // Coins
+      coins.push({ x: 0, y: 0, s: c * scale });
+      coins.push({ x: (c + effC) * scale, y: 0, s: c * scale });
 
-      const effC = Math.max(0, sideC?.effective || 0);
-      coinSquares.push({ xm: 0, ym: 0, sm: 1 });
-      coinSquares.push({ xm: 1 + effC, ym: 0, sm: 1 });
+      // Central (horizontal)
+      pushHorizontal(c, 0, get("Central")?.segments || []);
+      // Gauche (vertical)
+      pushVertical(0, c, get("Gauche")?.segments || []);
+      // Droit (vertical)
+      pushVertical(c + effC, c, get("Droit")?.segments || []);
 
-      pushHorizontal(1, 0, sideC?.segments || []);
-      pushVertical(0, 1, sideG?.segments || []);
-      pushVertical(1 + effC, 1, sideD?.segments || []);
-
-      const depthMax = Math.max(sideG?.effective || 0, sideD?.effective || 0);
-      const cxBase = 1 + effC / 2;
-      const cyBase = 1 + Math.min(1.3, depthMax / 2);
-
+      // Tables centrées dans le U
+      const depthMax = Math.max(effG, effD);
+      const cx = (c + effC / 2) * scale;
+      const cy = (c + Math.min(1.3, depthMax / 2)) * scale;
       const grid = [
-        { xm: cxBase - 0.8, ym: cyBase },
-        { xm: cxBase,       ym: cyBase },
-        { xm: cxBase + 0.8, ym: cyBase },
-        { xm: cxBase,       ym: cyBase + 0.8 },
+        { x: cx - 0.8 * scale, y: cy },
+        { x: cx,               y: cy },
+        { x: cx + 0.8 * scale, y: cy },
+        { x: cx,               y: cy + 0.8 * scale },
       ];
-      let placed = 0;
-      for (let i = 0; i < bigTableCount && placed < grid.length; i++, placed++) {
-        tables.push({ type: "big", ...grid[placed] });
-      }
-      for (let i = 0; i < smallTableCount && placed < grid.length; i++, placed++) {
-        tables.push({ type: "small", ...grid[placed] });
-      }
+      let p = 0;
+      for (let i = 0; i < bigTableCount && p < grid.length; i++, p++) tables.push({ type: "big", ...grid[p] });
+      for (let i = 0; i < smallTableCount && p < grid.length; i++, p++) tables.push({ type: "small", ...grid[p] });
     }
 
-    const widthPx = Math.min(maxW, widthM * scale + 8);
-    const heightPx = Math.min(maxH, heightM * scale + 8);
-
-    return { widthPx, heightPx, scale, rects, coinSquares, tables };
-  }, [geom, smallTableCount, bigTableCount, depth]);
+    const widthPx = Math.min(maxW, widthM * scale + 4);
+    const heightPx = Math.min(maxH, heightM * scale + 4);
+    return { widthPx, heightPx, scale, rects, coins, tables };
+  }, [geom, smallTableCount, bigTableCount]);
 
   return (
     <svg width={widthPx} height={heightPx} className="rounded-md bg-orange-50/40 border border-orange-100 mx-auto">
-      {coinSquares.map((c, i) => (
-        <rect key={`c-${i}`} x={c.xm * scale} y={c.ym * scale} width={c.sm * scale} height={c.sm * scale}
-              fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />
+      {coins.map((c, i) => (
+        <rect key={`c-${i}`} x={c.x} y={c.y} width={c.s} height={c.s} fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />
       ))}
       {rects.map((r, i) => (
         <g key={`m-${i}`}>
-          <rect x={r.xm * scale} y={r.ym * scale} width={r.wm * scale} height={r.hm * scale}
-                rx="6" ry="6" fill="#FFEDD5" stroke="#FB923C" strokeWidth="2" />
-          <text x={(r.xm + r.wm / 2) * scale} y={(r.ym + r.hm / 2) * scale}
-                textAnchor="middle" dominantBaseline="central" fontSize="12" fill="#9A3412">
-            {r.label}
-          </text>
+          <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="6" ry="6" fill="#FFEDD5" stroke="#FB923C" strokeWidth="2" />
+          <text x={r.x + r.w/2} y={r.y + r.h/2} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="#9A3412">{r.label}</text>
         </g>
       ))}
-      {/* Tables */}
       {tables.map((t, i) =>
         t.type === "small" ? (
           <g key={`ts-${i}`}>
-            <circle cx={t.xm * scale} cy={t.ym * scale} r={0.30 * scale} fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
-            <text x={t.xm * scale} y={t.ym * scale + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table S</text>
+            <circle cx={t.x} cy={t.y} r={0.30 * 100} fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <text x={t.x} y={t.y + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table S</text>
           </g>
         ) : (
           <g key={`tb-${i}`}>
-            <rect x={(t.xm - 0.40) * scale} y={(t.ym - 0.40) * scale} width={0.80 * scale} height={0.80 * scale}
-                  rx="10" fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
-            <text x={t.xm * scale} y={t.ym * scale + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table G</text>
+            <rect x={t.x - 0.40 * 100} y={t.y - 0.40 * 100} width={0.80 * 100} height={0.80 * 100} rx="10"
+                  fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <text x={t.x} y={t.y + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table G</text>
           </g>
         )
       )}
@@ -166,12 +320,12 @@ export default function QuotePage() {
 
   // ---- Salon
   const [salonData, setSalonData] = useState({
-    shape: "L",     // "L" ou "U"
-    sideA_m: 4,     // L: côté A / U: gauche
-    sideB_m: 3,     // L: côté B / U: central (longueur totale)
-    sideC_m: 0,     // U: droit
-    smallTableCount: 0,
-    bigTableCount: 0,
+    shape: "U",     // "L" ou "U"
+    sideA_m: 6.6,   // L: côté A / U: gauche (exemple)
+    sideB_m: 4.5,   // L: côté B / U: central (total, coins inclus)
+    sideC_m: 5.2,   // U: droit
+    smallTableCount: 2,
+    bigTableCount: 1,
   });
 
   // ---- Tapis & Rideaux (minimal)
@@ -183,78 +337,26 @@ export default function QuotePage() {
 
   const [calculatedPrice, setCalculatedPrice] = useState(null);
 
-  /* ---------- Découpe dans [1.40, 2.40] avec redistribution ---------- */
-  const splitIntoMattresses = (L) => {
-    if (L <= 0) return [];
-    if (L < MIN_MATTRESS) return []; // rien si tout le côté est trop court
-
-    // k doit vérifier : 1.4*k <= L <= 2.4*k
-    const kMin = Math.ceil(L / MAX_MATTRESS);
-    const kMax = Math.floor(L / MIN_MATTRESS);
-    let k = Math.round(L / STD_MATTRESS);
-    k = Math.max(kMin, Math.min(k, kMax));
-    if (k <= 0) k = 1;
-
-    // Répartition quasi-égale (proportionnelle), proche de 1.90
-    const base = L / k; // ∈ [1.4, 2.4]
-    const segments = Array(k).fill(base);
-
-    // Ajustement numérique pour somme exacte
-    const sum = segments.reduce((a, b) => a + b, 0);
-    const diff = L - sum;
-    segments[0] += diff; // correction minime
-    // clamp de sécurité
-    for (let i = 0; i < segments.length; i++) {
-      segments[i] = Math.max(MIN_MATTRESS, Math.min(MAX_MATTRESS, segments[i]));
-    }
-    return segments;
-  };
-
-  /* ---------- Géométrie salon L / U ---------- */
+  /* ---------- Géométrie (avec ajustement des coins ≥0.70 m) ---------- */
   const calcSalonGeometry = (data) => {
-    const COIN_M = 1;
-    const isL = data.shape === "L";
-
-    const sides = isL
-      ? [
-          { id: "A", len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
-          { id: "B", len: Math.max(0, Number(data.sideB_m || 0)), coinsOnSide: 1 },
-        ]
-      : [
-          { id: "Gauche",  len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
-          { id: "Central", len: Math.max(0, Number(data.sideB_m || 0)), coinsOnSide: 2 },
-          { id: "Droit",   len: Math.max(0, Number(data.sideC_m || 0)), coinsOnSide: 1 },
-        ];
-
-    const perSide = sides.map((s) => {
-      const effective = Math.max(0, s.len - s.coinsOnSide * COIN_M);
-      const segments = splitIntoMattresses(effective); // sans espace, bornés
-      return { ...s, effective, segments, mattresses: segments.length };
+    return solveGeometry(data.shape, {
+      sideA_m: Number(data.sideA_m || 0),
+      sideB_m: Number(data.sideB_m || 0),
+      sideC_m: Number(data.sideC_m || 0),
     });
-
-    const corners = isL ? 1 : 2;
-    const arms = 2;
-    const mattressCount = perSide.reduce((acc, s) => acc + s.mattresses, 0);
-
-    return { forme: data.shape, corners, arms, mattressCount, perSide };
   };
 
-  /* ---------- Calculs (affichage total uniquement) ---------- */
+  /* ---------- Totaux (affiche uniquement le total) ---------- */
   const calculateSalonPrice = () => {
     const geom = calcSalonGeometry(salonData);
-
-    const mattressTotal = geom.mattressCount * PRICES.salon.mattress;
-    const cornerTotal   = geom.corners       * PRICES.salon.corner;
-    const armsTotal     = geom.arms          * PRICES.salon.arms;
-    const smallTableTot = salonData.smallTableCount * PRICES.salon.smallTable;
-    const bigTableTot   = salonData.bigTableCount   * PRICES.salon.bigTable;
+    const mattressCount = geom.perSide.reduce((n, s) => n + s.segments.length, 0);
 
     const total =
-      mattressTotal +
-      cornerTotal +
-      armsTotal +
-      smallTableTot +
-      bigTableTot +
+      mattressCount * PRICES.salon.mattress +
+      geom.corners * PRICES.salon.corner +
+      geom.arms * PRICES.salon.arms +
+      salonData.smallTableCount * PRICES.salon.smallTable +
+      salonData.bigTableCount * PRICES.salon.bigTable +
       PRICES.salon.deliveryIncluded +
       PRICES.salon.transport +
       PRICES.salon.profitPerSalon;
@@ -325,9 +427,7 @@ export default function QuotePage() {
         <div className="max-w-5xl mx-auto space-y-8">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold">Calculateur de Devis</h1>
-            <p className="text-muted-foreground">
-              Configurez votre projet, visualisez le plan de matelas et obtenez le total.
-            </p>
+            <p className="text-muted-foreground">Configurez votre projet, visualisez le plan de matelas et obtenez le total.</p>
           </div>
 
           <Tabs defaultValue="salon" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -359,17 +459,13 @@ export default function QuotePage() {
                       </div>
                       <div className="space-y-2">
                         <Label>Côté A (m)</Label>
-                        <Input type="number" step="0.1" min="0"
-                          value={salonData.sideA_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}
-                        />
+                        <Input type="number" step="0.1" min="0" value={salonData.sideA_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}/>
                       </div>
                       <div className="space-y-2">
                         <Label>Côté B (m)</Label>
-                        <Input type="number" step="0.1" min="0"
-                          value={salonData.sideB_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}
-                        />
+                        <Input type="number" step="0.1" min="0" value={salonData.sideB_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}/>
                       </div>
                     </div>
                   ) : (
@@ -386,24 +482,18 @@ export default function QuotePage() {
                       </div>
                       <div className="space-y-2">
                         <Label>Gauche (m)</Label>
-                        <Input type="number" step="0.1" min="0"
-                          value={salonData.sideA_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}
-                        />
+                        <Input type="number" step="0.1" min="0" value={salonData.sideA_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideA_m: Number(e.target.value) })}/>
                       </div>
                       <div className="space-y-2">
                         <Label>Central (m)</Label>
-                        <Input type="number" step="0.1" min="0"
-                          value={salonData.sideB_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}
-                        />
+                        <Input type="number" step="0.1" min="0" value={salonData.sideB_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideB_m: Number(e.target.value) })}/>
                       </div>
                       <div className="space-y-2">
                         <Label>Droit (m)</Label>
-                        <Input type="number" step="0.1" min="0"
-                          value={salonData.sideC_m}
-                          onChange={(e) => setSalonData({ ...salonData, sideC_m: Number(e.target.value) })}
-                        />
+                        <Input type="number" step="0.1" min="0" value={salonData.sideC_m}
+                          onChange={(e) => setSalonData({ ...salonData, sideC_m: Number(e.target.value) })}/>
                       </div>
                     </div>
                   )}
@@ -412,10 +502,7 @@ export default function QuotePage() {
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <Label>Petites tables (0–3)</Label>
-                      <Select
-                        value={String(salonData.smallTableCount)}
-                        onValueChange={(v) => setSalonData({ ...salonData, smallTableCount: Number(v) })}
-                      >
+                      <Select value={String(salonData.smallTableCount)} onValueChange={(v) => setSalonData({ ...salonData, smallTableCount: Number(v) })}>
                         <SelectTrigger><SelectValue placeholder="0" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="0">0</SelectItem>
@@ -427,10 +514,7 @@ export default function QuotePage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Grandes tables (0–3)</Label>
-                      <Select
-                        value={String(salonData.bigTableCount)}
-                        onValueChange={(v) => setSalonData({ ...salonData, bigTableCount: Number(v) })}
-                      >
+                      <Select value={String(salonData.bigTableCount)} onValueChange={(v) => setSalonData({ ...salonData, bigTableCount: Number(v) })}>
                         <SelectTrigger><SelectValue placeholder="0" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="0">0</SelectItem>
@@ -458,20 +542,22 @@ export default function QuotePage() {
 
                   {calculatedPrice && calculatedPrice.type === "salon" && (
                     <div className="space-y-6">
-                      {/* Schéma */}
                       <SalonDiagram
                         geom={calculatedPrice.breakdown.geom}
                         smallTableCount={salonData.smallTableCount}
                         bigTableCount={salonData.bigTableCount}
                       />
 
-                      {/* Détail des matelas par côté (tailles) */}
+                      {/* Détail des matelas par côté (sans prix) */}
                       <div className="rounded-md border p-4 text-sm space-y-3">
                         <div className="font-medium">Détail des matelas</div>
+                        <div className="text-muted-foreground">
+                          Coin(s) utilisés : {calculatedPrice.breakdown.geom.coinSize.toFixed(2)} m
+                        </div>
                         {calculatedPrice.breakdown.geom.perSide.map((side) => (
                           <div key={side.id} className="flex flex-wrap items-center gap-2">
                             <span className="w-28">{side.id}</span>
-                            <span className="text-muted-foreground">utile&nbsp;: {side.effective.toFixed(2)}&nbsp;m</span>
+                            <span className="text-muted-foreground">utile : {side.effective.toFixed(2)} m</span>
                             <span className="mx-1">•</span>
                             <span>{side.segments.length} matelas :</span>
                             {side.segments.map((len, i) => (
@@ -483,7 +569,6 @@ export default function QuotePage() {
                         ))}
                       </div>
 
-                      {/* Total (sans détail de prix) */}
                       <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
                         <div className="text-2xl font-extrabold text-orange-700">
                           Total : {formatPrice(calculatedPrice.total)}
