@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Calculator, Send, ArrowLeft } from "lucide-react";
@@ -12,7 +11,7 @@ import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APP_TITLE, APP_LOGO } from "@/const";
 
-/* ------------------ Barèmes internes (masqués dans l'UI) ------------------ */
+/* ------------------ Barèmes internes (masqués) ------------------ */
 const PRICES = {
   salon: {
     mattress: 130000,
@@ -20,217 +19,227 @@ const PRICES = {
     arms: 96000,
     smallTable: 50000,
     bigTable: 130000,
-    deliveryIncluded: 75000,   // incluse obligatoirement
-    transport: 425000,         // ajouté automatiquement
-    profitPerSalon: 500000,    // ajouté automatiquement
+    deliveryIncluded: 75000,   // incluse d’office
+    transport: 425000,         // ajouté d’office
+    profitPerSalon: 500000,    // ajouté d’office
   },
   carpet: { pricePerSqm: 13000, delivery: 75000 },
   curtain: { dubai: 6000, quality2: 4500, quality3: 4000, delivery: 75000 },
 };
 
-// constantes salon
 const STD_MATTRESS = 1.9; // m
 const MIN_MATTRESS = 1.4; // m
 
-/* ------------------ Dessin SVG ------------------ */
-function SalonDiagram({ geom, hasSmallTable, hasBigTable, depth = 0.7 }) {
-  /* geom.perSide : [{ id, len, effective, segments: number[] }] */
-  const { widthPx, heightPx, scale, rects, coins, tableShapes } = useMemo(() => {
+/* ================== SVG du salon ================== */
+function SalonDiagram({ geom, smallTableCount, bigTableCount, depth = 0.7 }) {
+  // Tout est calculé en mètres puis converti en px (scale)
+  const { widthPx, heightPx, scale, rects, coinSquares, tables } = useMemo(() => {
+    const sd = depth; // m (épaisseur d’assise)
     const sides = geom.perSide;
-    const seatDepth = depth; // m
 
-    // Calcul étendue de la scène (approx) en mètres
-    let widthM = 2 + (sides.find(s => s.id === "A" || s.id === "Gauche")?.len || 0)
-                   + (geom.forme === "U" ? (sides.find(s => s.id === "Central")?.len || 0) : 0);
-    let heightM = 2 + (sides.find(s => s.id === "B" || s.id === "Droit")?.len || 0);
+    // Étendue approximative pour mise à l’échelle
+    const leftLen   = (sides.find(s => s.id === "B" || s.id === "Gauche")?.len || 0);
+    const rightLen  = (sides.find(s => s.id === "Droit")?.len || 0);
+    const topLen    = (sides.find(s => s.id === "A" || s.id === "Central")?.len || 0);
+    const widthM  = 2 + topLen;      // 2m ≈ coins
+    const heightM = 2 + Math.max(leftLen, rightLen);
 
     const maxW = 680, maxH = 420;
     const scale = Math.min(maxW / widthM, maxH / heightM);
 
-    const sd = seatDepth * scale;
-
     const rects = [];
-    const coins = [];
-    const tableShapes = [];
+    const coinSquares = [];
+    const tables = [];
 
-    // Helpers dessin
-    const drawHorizontalSegments = (xStartM, yStartM, segments) => {
-      let x = xStartM;
+    // Helpers (en mètres)
+    const pushHorizontal = (xStart, yStart, segments) => {
+      let x = xStart;
       segments.forEach((seg, i) => {
-        rects.push({
-          x: x * scale, y: yStartM * scale,
-          w: seg * scale, h: sd, label: i + 1
-        });
+        rects.push({ xm: x, ym: yStart, wm: seg, hm: sd, label: i + 1 });
         x += seg;
       });
     };
-
-    const drawVerticalSegments = (xStartM, yStartM, segments) => {
-      let y = yStartM;
+    const pushVertical = (xStart, yStart, segments) => {
+      let y = yStart;
       segments.forEach((seg, i) => {
-        rects.push({
-          x: xStartM * scale, y: y * scale,
-          w: sd, h: seg * scale, label: i + 1
-        });
+        rects.push({ xm: xStart, ym: y, wm: sd, hm: seg, label: i + 1 });
         y += seg;
       });
     };
 
+    // ===== Coins & segments =====
     if (geom.forme === "L") {
-      const sideA = sides.find(s => s.id === "A");
-      const sideB = sides.find(s => s.id === "B");
+      const sideA = sides.find(s => s.id === "A");       // horizontal
+      const sideB = sides.find(s => s.id === "B");       // vertical
 
-      // coin 1x1 à l'origine
-      coins.push({ x: 0, y: 0, s: 1 * scale });
+      // Coins 1x1 (en mètres)
+      coinSquares.push({ xm: 0, ym: 0, sm: 1 });
 
-      // A = horizontal vers la droite depuis le coin
-      drawHorizontalSegments(1, 0, sideA?.segments || []);
-      // B = vertical vers le bas depuis le coin
-      drawVerticalSegments(0, 1, sideB?.segments || []);
+      // A : de x=1 à x=1+effective, y=0
+      pushHorizontal(1, 0, sideA?.segments || []);
+      // B : de y=1 à y=1+effective, x=0
+      pushVertical(0, 1, sideB?.segments || []);
 
-      // Tables (centre proche du coin intérieur)
-      if (hasSmallTable) {
-        tableShapes.push({ type: "small", cx: 1 + Math.min(0.9, (sideA?.effective || 0) / 2), cy: 1 + Math.min(0.9, (sideB?.effective || 0) / 2) });
+      // ===== Tables (positions en m, centrées dans l’angle) =====
+      const centers = [
+        { xm: 1 + 0.7, ym: 1 + 0.7 },
+        { xm: 1 + 1.5, ym: 1 + 0.7 },
+        { xm: 1 + 0.7, ym: 1 + 1.5 },
+        { xm: 1 + 1.5, ym: 1 + 1.5 },
+      ];
+      let placed = 0;
+      for (let i = 0; i < bigTableCount && placed < centers.length; i++, placed++) {
+        tables.push({ type: "big", ...centers[placed] });
       }
-      if (hasBigTable) {
-        tableShapes.push({ type: "big", cx: 1 + Math.min(1.2, (sideA?.effective || 0) / 1.8), cy: 1 + Math.min(1.2, (sideB?.effective || 0) / 1.8) });
+      for (let i = 0; i < smallTableCount && placed < centers.length; i++, placed++) {
+        tables.push({ type: "small", ...centers[placed] });
       }
     } else {
-      const sideG = sides.find(s => s.id === "Gauche");
-      const sideC = sides.find(s => s.id === "Central");
-      const sideD = sides.find(s => s.id === "Droit");
+      const sideG = sides.find(s => s.id === "Gauche");  // vertical gauche
+      const sideC = sides.find(s => s.id === "Central"); // horizontal haut
+      const sideD = sides.find(s => s.id === "Droit");   // vertical droit
 
-      // deux coins 1x1 aux extrémités du central
-      coins.push({ x: 0, y: 0, s: 1 * scale });
-      coins.push({ x: (1 + (sideC?.len || 0)) * scale, y: 0, s: 1 * scale });
+      // Deux coins : (0,0) et (1 + central.effective, 0)
+      const effC = Math.max(0, sideC?.effective || 0);
+      coinSquares.push({ xm: 0, ym: 0, sm: 1 });
+      coinSquares.push({ xm: 1 + effC, ym: 0, sm: 1 });
 
-      // Central : horizontal entre les coins
-      drawHorizontalSegments(1, 0, sideC?.segments || []);
-      // Gauche : vertical depuis coin gauche
-      drawVerticalSegments(0, 1, sideG?.segments || []);
-      // Droit : vertical depuis coin droit
-      drawVerticalSegments(1 + (sideC?.len || 0), 1, sideD?.segments || []);
+      // Central : horizontal entre les deux coins
+      pushHorizontal(1, 0, sideC?.segments || []);
+      // Gauche : vertical sous le coin gauche
+      pushVertical(0, 1, sideG?.segments || []);
+      // Droit : vertical sous le bord interne du coin droit
+      pushVertical(1 + effC, 1, sideD?.segments || []);
 
-      // Tables : au “centre” du U
-      if (hasBigTable) {
-        tableShapes.push({ type: "big", cx: 1 + (sideC?.len || 2) / 2, cy: 1 + Math.min(1.3, Math.max(sideG?.effective || 0, sideD?.effective || 0) / 2) });
+      // ===== Tables (au centre du U) =====
+      const depthMax = Math.max(sideG?.effective || 0, sideD?.effective || 0);
+      const cxBase = 1 + effC / 2;
+      const cyBase = 1 + Math.min(1.3, depthMax / 2);
+
+      const grid = [
+        { xm: cxBase - 0.8, ym: cyBase },
+        { xm: cxBase,       ym: cyBase },
+        { xm: cxBase + 0.8, ym: cyBase },
+        { xm: cxBase,       ym: cyBase + 0.8 },
+      ];
+      let placed = 0;
+      for (let i = 0; i < bigTableCount && placed < grid.length; i++, placed++) {
+        tables.push({ type: "big", ...grid[placed] });
       }
-      if (hasSmallTable) {
-        tableShapes.push({ type: "small", cx: 1 + (sideC?.len || 2) / 2.6, cy: 1 + 0.9 });
+      for (let i = 0; i < smallTableCount && placed < grid.length; i++, placed++) {
+        tables.push({ type: "small", ...grid[placed] });
       }
     }
 
-    // dimensions finales (px)
     const widthPx = Math.min(maxW, widthM * scale + 8);
     const heightPx = Math.min(maxH, heightM * scale + 8);
 
-    return { widthPx, heightPx, scale, rects, coins, tableShapes };
-  }, [geom, hasSmallTable, hasBigTable, depth]);
+    return { widthPx, heightPx, scale, rects, coinSquares, tables };
+  }, [geom, smallTableCount, bigTableCount, depth]);
 
   return (
     <svg width={widthPx} height={heightPx} className="rounded-md bg-orange-50/40 border border-orange-100 mx-auto">
       {/* Coins */}
-      {coins.map((c, i) => (
-        <rect key={`c-${i}`} x={c.x} y={c.y} width={c.s} height={c.s} fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />
+      {coinSquares.map((c, i) => (
+        <rect key={`c-${i}`} x={c.xm * scale} y={c.ym * scale} width={c.sm * scale} height={c.sm * scale}
+              fill="#FED7AA" stroke="#FB923C" strokeWidth="2" opacity="0.95" />
       ))}
-      {/* Matelas */}
+      {/* Matelas : segments consécutifs sans espace */}
       {rects.map((r, i) => (
         <g key={`m-${i}`}>
-          <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="6" ry="6" fill="#FFEDD5" stroke="#FB923C" strokeWidth="2" />
-          <text x={r.x + r.w/2} y={r.y + r.h/2} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="#9A3412">
+          <rect x={r.xm * scale} y={r.ym * scale} width={r.wm * scale} height={r.hm * scale}
+                rx="6" ry="6" fill="#FFEDD5" stroke="#FB923C" strokeWidth="2" />
+          <text x={(r.xm + r.wm / 2) * scale} y={(r.ym + r.hm / 2) * scale}
+                textAnchor="middle" dominantBaseline="central" fontSize="12" fill="#9A3412">
             {r.label}
           </text>
         </g>
       ))}
       {/* Tables */}
-      {tableShapes.map((t, i) => {
-        const rSmall = 0.30 * 100;  // rayon approximatif en px (échelle fixe pour lisibilité)
-        const rBig = 0.45 * 100;
-        if (t.type === "small") {
-          return (
-            <g key={`ts-${i}`} transform={`translate(${t.cx * 100}, ${t.cy * 100})`}>
-              <circle r={rSmall} fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" opacity="0.9" />
-              <text y="4" textAnchor="middle" fontSize="12" fill="#92400E">Table S</text>
-            </g>
-          );
-        }
-        return (
-          <g key={`tb-${i}`} transform={`translate(${t.cx * 100}, ${t.cy * 100})`}>
-            <rect x={-rBig} y={-rBig} width={2*rBig} height={2*rBig} rx="12" fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" opacity="0.9" />
-            <text y="4" textAnchor="middle" fontSize="12" fill="#92400E">Table G</text>
+      {tables.map((t, i) =>
+        t.type === "small" ? (
+          <g key={`ts-${i}`}>
+            <circle cx={t.xm * scale} cy={t.ym * scale} r={0.30 * scale} fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <text x={t.xm * scale} y={t.ym * scale + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table S</text>
           </g>
-        );
-      })}
+        ) : (
+          <g key={`tb-${i}`}>
+            <rect x={(t.xm - 0.40) * scale} y={(t.ym - 0.40) * scale} width={0.80 * scale} height={0.80 * scale}
+                  rx="10" fill="#FDE68A" stroke="#F59E0B" strokeWidth="3" />
+            <text x={t.xm * scale} y={t.ym * scale + 4} textAnchor="middle" fontSize="11" fill="#92400E">Table G</text>
+          </g>
+        )
+      )}
     </svg>
   );
 }
 
-/* ------------------ Page Devis ------------------ */
+/* ================== Page Devis ================== */
 export default function QuotePage() {
   const [activeTab, setActiveTab] = useState("salon");
 
-  // ----- SALON (formes L/U + mètres par côté)
+  // ---- Salon
   const [salonData, setSalonData] = useState({
-    shape: "L",          // "L" ou "U"
-    sideA_m: 4,          // L : côté A / U : côté gauche
-    sideB_m: 3,          // L : côté B / U : côté central
-    sideC_m: 0,          // U : côté droit
-    hasSmallTable: false,
-    hasBigTable: false,
+    shape: "L",     // "L" ou "U"
+    sideA_m: 4,     // L: côté A / U: gauche
+    sideB_m: 3,     // L: côté B / U: central (longueur totale)
+    sideC_m: 0,     // U: droit
+    smallTableCount: 0,
+    bigTableCount: 0,
   });
 
-  // ----- TAPIS & RIDEAUX (inchangés sauf masquage des détails)
+  // ---- Tapis & Rideaux (minimal)
   const [carpetData, setCarpetData] = useState({ length: 3, width: 2 });
   const [curtainData, setCurtainData] = useState({ length: 2.5, width: 3, quality: "dubai" });
 
-  // ----- Client
+  // ---- Client
   const [customerInfo, setCustomerInfo] = useState({ name: "", email: "", phone: "", address: "", notes: "" });
 
   const [calculatedPrice, setCalculatedPrice] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  /* ---- Fractionnement matelas avec redistribution si reliquat < 1.40m ---- */
+  /* ---------- Algorithme de découpe sans matelas < 1,40 m ---------- */
   const splitIntoMattresses = (effectiveLen) => {
     if (effectiveLen <= 0) return [];
-    const nFloor = Math.floor(effectiveLen / STD_MATTRESS);
-    const remainder = effectiveLen - nFloor * STD_MATTRESS;
 
-    // Cas 1 : une seule pièce entre 1.40 et 1.90
-    if (nFloor === 0) {
-      if (effectiveLen >= MIN_MATTRESS) return [effectiveLen];
-      // Trop court pour un matelas - on ne place rien
-      return [];
+    // cas simple : longueur entre 1.40 et 1.90 -> un seul matelas
+    if (effectiveLen < STD_MATTRESS) {
+      return effectiveLen >= MIN_MATTRESS ? [effectiveLen] : [];
     }
 
-    // Cas 2 : reste suffisant pour un matelas (>= 1.40)
+    // tant que > 1.9, on pré-alloue des 1.9
+    const nStd = Math.floor(effectiveLen / STD_MATTRESS);
+    const remainder = effectiveLen - nStd * STD_MATTRESS;
+
     if (remainder >= MIN_MATTRESS) {
-      return Array(nFloor).fill(STD_MATTRESS).concat([remainder]);
+      // on garde le reliquat comme dernier matelas
+      return Array(nStd).fill(STD_MATTRESS).concat([remainder]);
     }
 
-    // Cas 3 : reste < 1.40 => on répartit proportionnellement sur les nFloor matelas
-    const addEach = remainder / nFloor;
-    return Array.from({ length: nFloor }, () => STD_MATTRESS + addEach);
+    // sinon, on répartit proport. le reliquat sur les nStd pièces
+    const delta = remainder / nStd;
+    return Array.from({ length: nStd }, () => STD_MATTRESS + delta);
   };
 
-  // --- Calcul géométrique salon (L/U)
+  /* ---------- Géométrie salon L / U ---------- */
   const calcSalonGeometry = (data) => {
     const COIN_M = 1;
-
     const isL = data.shape === "L";
+
     const sides = isL
       ? [
           { id: "A", len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
           { id: "B", len: Math.max(0, Number(data.sideB_m || 0)), coinsOnSide: 1 },
         ]
       : [
-          { id: "Gauche", len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
+          { id: "Gauche",  len: Math.max(0, Number(data.sideA_m || 0)), coinsOnSide: 1 },
           { id: "Central", len: Math.max(0, Number(data.sideB_m || 0)), coinsOnSide: 2 },
-          { id: "Droit", len: Math.max(0, Number(data.sideC_m || 0)), coinsOnSide: 1 },
+          { id: "Droit",   len: Math.max(0, Number(data.sideC_m || 0)), coinsOnSide: 1 },
         ];
 
     const perSide = sides.map((s) => {
       const effective = Math.max(0, s.len - s.coinsOnSide * COIN_M);
-      const segments = splitIntoMattresses(effective);
+      const segments = splitIntoMattresses(effective); // somme = effective, sans espace
       return { ...s, effective, segments, mattresses: segments.length };
     });
 
@@ -241,57 +250,55 @@ export default function QuotePage() {
     return { forme: data.shape, corners, arms, mattressCount, perSide };
   };
 
-  /* ----- Calculs : on n'affiche que le total ----- */
+  /* ---------- Calculs (affichage total uniquement) ---------- */
   const calculateSalonPrice = () => {
     const geom = calcSalonGeometry(salonData);
 
     const mattressTotal = geom.mattressCount * PRICES.salon.mattress;
     const cornerTotal   = geom.corners       * PRICES.salon.corner;
     const armsTotal     = geom.arms          * PRICES.salon.arms;
-    const smallTableTot = salonData.hasSmallTable ? PRICES.salon.smallTable : 0;
-    const bigTableTot   = salonData.hasBigTable   ? PRICES.salon.bigTable   : 0;
+    const smallTableTot = salonData.smallTableCount * PRICES.salon.smallTable;
+    const bigTableTot   = salonData.bigTableCount   * PRICES.salon.bigTable;
 
-    // livraison incluse + transport + bénéfice fixes
-    const includedDelivery = PRICES.salon.deliveryIncluded;
-    const transport        = PRICES.salon.transport;
-    const profit           = PRICES.salon.profitPerSalon;
+    const total =
+      mattressTotal +
+      cornerTotal +
+      armsTotal +
+      smallTableTot +
+      bigTableTot +
+      PRICES.salon.deliveryIncluded +
+      PRICES.salon.transport +
+      PRICES.salon.profitPerSalon;
 
-    const subtotal = mattressTotal + cornerTotal + armsTotal + smallTableTot + bigTableTot;
-    const total = subtotal + includedDelivery + transport + profit;
-
-    return {
-      type: "salon",
-      breakdown: { geom }, // détails masqués à l'affichage
-      subtotal,
-      total,
-    };
+    return { type: "salon", breakdown: { geom }, total };
   };
 
   const calculateCarpetPrice = () => {
     const area = carpetData.length * carpetData.width;
-    const subtotal = area * PRICES.carpet.pricePerSqm;
-    const total = subtotal + PRICES.carpet.delivery; // inclure une livraison par défaut ici si souhaité
-    return { type: "carpet", breakdown: { area }, subtotal, total };
+    const total = area * PRICES.carpet.pricePerSqm + PRICES.carpet.delivery;
+    return { type: "carpet", breakdown: { area }, total };
   };
 
   const calculateCurtainPrice = () => {
     const area = curtainData.length * curtainData.width;
     const pricePerSqm = PRICES.curtain[curtainData.quality];
-    const subtotal = area * pricePerSqm;
-    const total = subtotal + PRICES.curtain.delivery;
-    return { type: "curtain", breakdown: { area, quality: curtainData.quality }, subtotal, total };
+    const total = area * pricePerSqm + PRICES.curtain.delivery;
+    return { type: "curtain", breakdown: { area, quality: curtainData.quality }, total };
   };
 
   const handleCalculate = () => {
-    let result;
-    if (activeTab === "salon") result = calculateSalonPrice();
-    else if (activeTab === "carpet") result = calculateCarpetPrice();
-    else result = calculateCurtainPrice();
-    setCalculatedPrice(result);
+    const r =
+      activeTab === "salon"
+        ? calculateSalonPrice()
+        : activeTab === "carpet"
+        ? calculateCarpetPrice()
+        : calculateCurtainPrice();
+
+    setCalculatedPrice(r);
     toast.success("Calcul effectué.");
   };
 
-  const handleSubmitQuote = async () => {
+  const handleSubmitQuote = () => {
     if (!customerInfo.name || !customerInfo.phone) {
       toast.error("Veuillez renseigner votre nom et téléphone");
       return;
@@ -300,38 +307,14 @@ export default function QuotePage() {
       toast.error("Veuillez d'abord calculer le devis");
       return;
     }
-    setIsSubmitting(true);
-    setTimeout(() => {
-      toast.success("Demande de devis envoyée. Nous vous contacterons bientôt.");
-      setCustomerInfo({ name: "", email: "", phone: "", address: "", notes: "" });
-      setCalculatedPrice(null);
-      setIsSubmitting(false);
-    }, 1000);
+    toast.success("Demande de devis envoyée. Nous vous contacterons bientôt.");
+    setCustomerInfo({ name: "", email: "", phone: "", address: "", notes: "" });
+    setCalculatedPrice(null);
   };
 
   const formatPrice = (price) => new Intl.NumberFormat("fr-FR").format(price) + " FCFA";
 
   /* ------------------ UI ------------------ */
-  const SiteFooter = () => (
-    <footer className="mt-20 bg-neutral-950 text-neutral-300">
-      <div className="container py-12 grid gap-10 md:grid-cols-4">
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <img src={APP_LOGO} alt="Decor Mali" className="h-10 w-10 rounded-full ring-1 ring-white/20 object-contain" />
-            <span className="font-semibold text-lg">Decor Mali</span>
-          </div>
-          <p className="text-sm text-neutral-400">Salons, tapis & rideaux sur-mesure.</p>
-        </div>
-        <div className="space-y-2 text-sm"><strong>Contact</strong><div>+223 70 93 24 62</div><div>contact@decormali.com</div></div>
-        <div className="space-y-2 text-sm"><strong>Localisation</strong><div>Bamako, Mali</div><div>Toujours ouvert</div></div>
-        <div className="space-y-2 text-sm"><strong>Liens</strong><Link href="/">Accueil</Link><Link href="/quote">Devis</Link></div>
-      </div>
-      <div className="border-t border-white/10">
-        <div className="container py-5 text-xs text-neutral-400">© {new Date().getFullYear()} Decor Mali</div>
-      </div>
-    </footer>
-  );
-
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b">
@@ -354,7 +337,7 @@ export default function QuotePage() {
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold">Calculateur de Devis</h1>
             <p className="text-muted-foreground">
-              Le détail des prix est masqué. Livraison 75 000 FCFA et transport 425 000 FCFA sont inclus, ainsi qu’un bénéfice par salon.
+              Configurez votre projet, visualisez le plan de matelas et obtenez le total.
             </p>
           </div>
 
@@ -370,7 +353,7 @@ export default function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration du Salon</CardTitle>
-                  <CardDescription>Forme en L ou en U, longueurs en mètres</CardDescription>
+                  <CardDescription>Forme en L ou U — longueurs en mètres</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {salonData.shape === "L" ? (
@@ -436,26 +419,37 @@ export default function QuotePage() {
                     </div>
                   )}
 
-                  {/* Options tables + étiquettes d'inclusion */}
-                  <div className="grid md:grid-cols-3 gap-6">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="smallTable"
-                        checked={salonData.hasSmallTable}
-                        onCheckedChange={(v) => setSalonData({ ...salonData, hasSmallTable: !!v })}
-                      />
-                      <Label htmlFor="smallTable">Petite table</Label>
+                  {/* Nombre de tables */}
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label>Petites tables (0–3)</Label>
+                      <Select
+                        value={String(salonData.smallTableCount)}
+                        onValueChange={(v) => setSalonData({ ...salonData, smallTableCount: Number(v) })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="0" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">0</SelectItem>
+                          <SelectItem value="1">1</SelectItem>
+                          <SelectItem value="2">2</SelectItem>
+                          <SelectItem value="3">3</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="bigTable"
-                        checked={salonData.hasBigTable}
-                        onCheckedChange={(v) => setSalonData({ ...salonData, hasBigTable: !!v })}
-                      />
-                      <Label htmlFor="bigTable">Grande table</Label>
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Livraison (75 000) & transport (425 000) inclus automatiquement.
+                    <div className="space-y-2">
+                      <Label>Grandes tables (0–3)</Label>
+                      <Select
+                        value={String(salonData.bigTableCount)}
+                        onValueChange={(v) => setSalonData({ ...salonData, bigTableCount: Number(v) })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="0" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">0</SelectItem>
+                          <SelectItem value="1">1</SelectItem>
+                          <SelectItem value="2">2</SelectItem>
+                          <SelectItem value="3">3</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </CardContent>
@@ -464,7 +458,7 @@ export default function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Résultat</CardTitle>
-                  <CardDescription>Dessin des matelas et total du devis</CardDescription>
+                  <CardDescription>Plan de matelas et total</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex gap-3">
@@ -475,23 +469,13 @@ export default function QuotePage() {
 
                   {calculatedPrice && calculatedPrice.type === "salon" && (
                     <div className="space-y-6">
-                      {/* Schéma */}
-                      <div className="space-y-3">
-                        <div className="text-sm text-muted-foreground">
-                          Forme : {calculatedPrice.breakdown.geom.forme} — Matelas : {calculatedPrice.breakdown.geom.perSide.reduce((n,s)=>n+s.segments.length,0)} — Coins : {calculatedPrice.breakdown.geom.corners}
-                        </div>
-                        <SalonDiagram
-                          geom={calculatedPrice.breakdown.geom}
-                          hasSmallTable={salonData.hasSmallTable}
-                          hasBigTable={salonData.hasBigTable}
-                        />
-                      </div>
+                      <SalonDiagram
+                        geom={calculatedPrice.breakdown.geom}
+                        smallTableCount={salonData.smallTableCount}
+                        bigTableCount={salonData.bigTableCount}
+                      />
 
-                      {/* Total uniquement (détails cachés) */}
-                      <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 flex items-center justify-between">
-                        <div className="text-sm text-muted-foreground">
-                          Détails de prix masqués (matelas, coins, bras, tables, livraison, transport, bénéfice).
-                        </div>
+                      <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
                         <div className="text-2xl font-extrabold text-orange-700">
                           Total : {formatPrice(calculatedPrice.total)}
                         </div>
@@ -507,10 +491,10 @@ export default function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration du Tapis</CardTitle>
-                  <CardDescription>Surface et options</CardDescription>
+                  <CardDescription>Surface et total</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="grid md:grid-cols-3 gap-6">
+                  <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <Label>Longueur (m)</Label>
                       <Input type="number" step="0.1" min="0"
@@ -534,10 +518,7 @@ export default function QuotePage() {
                   </div>
 
                   {calculatedPrice && calculatedPrice.type === "carpet" && (
-                    <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">
-                        Détails masqués — surface {(carpetData.length * carpetData.width).toFixed(2)} m²
-                      </div>
+                    <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
                       <div className="text-2xl font-extrabold text-orange-700">
                         Total : {formatPrice(calculatedPrice.total)}
                       </div>
@@ -552,7 +533,7 @@ export default function QuotePage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Configuration des Rideaux</CardTitle>
-                  <CardDescription>Qualité, dimensions et options</CardDescription>
+                  <CardDescription>Dimensions, qualité et total</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-4 gap-6">
@@ -590,10 +571,7 @@ export default function QuotePage() {
                   </div>
 
                   {calculatedPrice && calculatedPrice.type === "curtain" && (
-                    <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">
-                        Détails masqués — surface {(curtainData.length * curtainData.width).toFixed(2)} m²
-                      </div>
+                    <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 text-right">
                       <div className="text-2xl font-extrabold text-orange-700">
                         Total : {formatPrice(calculatedPrice.total)}
                       </div>
@@ -634,7 +612,7 @@ export default function QuotePage() {
                 <Textarea value={customerInfo.notes} onChange={(e) => setCustomerInfo({ ...customerInfo, notes: e.target.value })} placeholder="Informations complémentaires…" />
               </div>
               <div className="flex gap-3">
-                <Button onClick={handleSubmitQuote} disabled={isSubmitting} className="gap-2">
+                <Button onClick={handleSubmitQuote} className="gap-2">
                   <Send className="w-4 h-4" />
                   Envoyer la demande de devis
                 </Button>
@@ -643,8 +621,6 @@ export default function QuotePage() {
           </Card>
         </div>
       </main>
-
-      <SiteFooter />
     </div>
   );
 }
