@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,14 +12,117 @@ import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APP_TITLE, APP_LOGO } from "@/const";
 
-// Barèmes (utilisés pour le calcul ET affichés dans le devis)
+/** ------------------ Prix internes (non affichés en détail) ------------------ */
 const PRICES = {
   salon: { mattress: 130000, corner: 130000, arms: 96000, smallTable: 50000, bigTable: 130000, delivery: 75000 },
   carpet: { pricePerSqm: 13000, delivery: 75000 },
   curtain: { dubai: 6000, quality2: 4500, quality3: 4000, delivery: 75000 },
 };
 
-function QuotePage() {
+/** ------------------ Schéma SVG des matelas ------------------ */
+function SalonDiagram({ geom, depth = 0.7 }) {
+  // Conversion m -> px auto pour rentrer dans 680x420
+  const { widthPx, heightPx, scale, rects, coins } = useMemo(() => {
+    const seatDepth = depth; // m
+    // Définir les bras selon forme
+    const sides = geom.perSide;
+    // Taille max en mètres (pour vue basique)
+    const maxX = Math.max(...sides.map(s => s.id === "A" || s.id === "Gauche" ? s.len : (s.id === "Central" ? s.len : seatDepth))) + seatDepth + 0.5;
+    const maxY = Math.max(...sides.map(s => s.id === "B" || s.id === "Droit" ? s.len : (s.id === "Central" ? seatDepth : seatDepth))) + seatDepth + 0.5;
+
+    const maxW = 680, maxH = 420;
+    const scale = Math.min(maxW / maxX, maxH / maxY);
+
+    const sd = seatDepth * scale;
+    const gap = 0.06 * scale;
+
+    const rects = [];
+    const coins = [];
+
+    const addHorizontal = (x0, y0, effectiveLen, ml) => {
+      let used = 0;
+      let i = 0;
+      while (used + 1e-6 < effectiveLen) {
+        const seg = Math.min(ml, effectiveLen - used);
+        rects.push({
+          x: (x0 + used) * scale, y: y0 * scale, w: seg * scale, h: sd,
+          label: ++i,
+        });
+        used += seg;
+      }
+    };
+    const addVertical = (x0, y0, effectiveLen, ml) => {
+      let used = 0;
+      let i = 0;
+      while (used + 1e-6 < effectiveLen) {
+        const seg = Math.min(ml, effectiveLen - used);
+        rects.push({
+          x: x0 * scale, y: (y0 + used) * scale, w: sd, h: seg * scale,
+          label: ++i,
+        });
+        used += seg;
+      }
+    };
+
+    const ml = geom.mattressLength_m;
+    if (geom.forme === "L") {
+      // Coin (1x1)
+      coins.push({ x: 0, y: 0, s: scale * 1 });
+
+      // Côté A : horizontal à droite depuis le coin
+      const effA = Math.max(0, geom.perSide.find(s=>s.id==="A").effective);
+      addHorizontal(1, 0, effA, ml);
+
+      // Côté B : vertical vers le bas depuis le coin
+      const effB = Math.max(0, geom.perSide.find(s=>s.id==="B").effective);
+      addVertical(0, 1, effB, ml);
+
+    } else {
+      // Forme U : deux coins et un central
+      // Coins 1x1 à gauche et à droite
+      const central = geom.perSide.find(s=>s.id==="Central");
+      const gauche = geom.perSide.find(s=>s.id==="Gauche");
+      const droit = geom.perSide.find(s=>s.id==="Droit");
+
+      coins.push({ x: 0, y: 0, s: scale * 1 });
+      coins.push({ x: (1 + central.len), y: 0, s: scale * 1 });
+
+      // Central : horizontal entre les deux coins
+      addHorizontal(1, 0, Math.max(0, central.effective), ml);
+
+      // Gauche : vertical vers le bas depuis coin gauche
+      addVertical(0, 1, Math.max(0, gauche.effective), ml);
+
+      // Droit : vertical vers le bas depuis coin droit (x=1+central.len)
+      addVertical(1 + central.len, 1, Math.max(0, droit.effective), ml);
+    }
+
+    const widthPx = Math.min(680, (maxX) * scale + 8);
+    const heightPx = Math.min(420, (maxY) * scale + 8);
+    return { widthPx, heightPx, scale, rects, coins };
+  }, [geom, depth]);
+
+  return (
+    <svg width={widthPx} height={heightPx} viewBox={`0 0 ${widthPx} ${heightPx}`} className="rounded-md bg-orange-50/40 border border-orange-100 mx-auto">
+      {/* Coins */}
+      {coins.map((c, i) => (
+        <rect key={`c-${i}`} x={c.x} y={c.y} width={c.s} height={c.s} fill="#fed7aa" stroke="#fb923c" strokeWidth="2" opacity="0.9" />
+      ))}
+      {/* Matelas */}
+      {rects.map((r, i) => (
+        <g key={`m-${i}`}>
+          <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="6" ry="6" fill="#ffedd5" stroke="#fb923c" strokeWidth="2" />
+          <text x={r.x + r.w/2} y={r.y + r.h/2} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="#9a3412">
+            {r.label}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/** ------------------ Page Devis ------------------ */
+export default function QuotePage() {
   const [activeTab, setActiveTab] = useState("salon");
 
   // ----- SALON (formes L/U + mètres par côté)
@@ -73,13 +176,12 @@ function QuotePage() {
     const arms = 2;
     const mattressCount = perSide.reduce((acc, s) => acc + s.mattresses, 0);
 
-    return { corners, arms, mattressCount, perSide, mattressLength_m: ml };
+    return { forme: data.shape, corners, arms, mattressCount, perSide, mattressLength_m: ml };
   };
 
-  // ----- Calculs
+  // ----- Calculs (montants gardés internes ; on n'affiche que le total) -----
   const calculateSalonPrice = () => {
     const geom = calcSalonGeometry(salonData);
-
     const mattressTotal = geom.mattressCount * PRICES.salon.mattress;
     const cornerTotal = geom.corners * PRICES.salon.corner;
     const armsTotal = geom.arms * PRICES.salon.arms;
@@ -90,22 +192,7 @@ function QuotePage() {
     const subtotal = mattressTotal + cornerTotal + armsTotal + smallTableTotal + bigTableTotal;
     const total = subtotal + deliveryTotal;
 
-    return {
-      type: "salon",
-      breakdown: {
-        forme: salonData.shape,
-        cotes: geom.perSide,
-        matelas: { count: geom.mattressCount, unitPrice: PRICES.salon.mattress, total: mattressTotal },
-        coins: { count: geom.corners, unitPrice: PRICES.salon.corner, total: cornerTotal },
-        bras: { count: geom.arms, unitPrice: PRICES.salon.arms, total: armsTotal },
-        petiteTable: { included: salonData.hasSmallTable, total: smallTableTotal },
-        grandeTable: { included: salonData.hasBigTable, total: bigTableTotal },
-        livraison: { included: salonData.needsDelivery, total: deliveryTotal },
-        params: { mattressLength_m: geom.mattressLength_m },
-      },
-      subtotal,
-      total,
-    };
+    return { type: "salon", breakdown: { geom }, subtotal, total };
   };
 
   const calculateCarpetPrice = () => {
@@ -113,16 +200,7 @@ function QuotePage() {
     const subtotal = area * PRICES.carpet.pricePerSqm;
     const deliveryTotal = carpetData.needsDelivery ? PRICES.carpet.delivery : 0;
     const total = subtotal + deliveryTotal;
-    return {
-      type: "carpet",
-      breakdown: {
-        dimensions: { length: carpetData.length, width: carpetData.width, area },
-        pricePerSqm: PRICES.carpet.pricePerSqm,
-        livraison: { included: carpetData.needsDelivery, total: deliveryTotal },
-      },
-      subtotal,
-      total,
-    };
+    return { type: "carpet", breakdown: { area }, subtotal, total };
   };
 
   const calculateCurtainPrice = () => {
@@ -131,17 +209,7 @@ function QuotePage() {
     const subtotal = area * pricePerSqm;
     const deliveryTotal = curtainData.needsDelivery ? PRICES.curtain.delivery : 0;
     const total = subtotal + deliveryTotal;
-    return {
-      type: "curtain",
-      breakdown: {
-        dimensions: { length: curtainData.length, width: curtainData.width, area },
-        quality: curtainData.quality,
-        pricePerSqm,
-        livraison: { included: curtainData.needsDelivery, total: deliveryTotal },
-      },
-      subtotal,
-      total,
-    };
+    return { type: "curtain", breakdown: { area, quality: curtainData.quality }, subtotal, total };
   };
 
   const handleCalculate = () => {
@@ -150,7 +218,7 @@ function QuotePage() {
     else if (activeTab === "carpet") result = calculateCarpetPrice();
     else result = calculateCurtainPrice();
     setCalculatedPrice(result);
-    toast.success("Prix calculé avec succès !");
+    toast.success("Calcul effectué.");
   };
 
   const handleSubmitQuote = async () => {
@@ -159,7 +227,7 @@ function QuotePage() {
       return;
     }
     if (!calculatedPrice) {
-      toast.error("Veuillez d'abord calculer le prix");
+      toast.error("Veuillez d'abord calculer le devis");
       return;
     }
     setIsSubmitting(true);
@@ -173,17 +241,33 @@ function QuotePage() {
 
   const formatPrice = (price) => new Intl.NumberFormat("fr-FR").format(price) + " FCFA";
 
-  // ----- UI
+  /** Pied de page joli, identique à l'accueil */
+  const SiteFooter = () => (
+    <footer className="mt-20 bg-neutral-950 text-neutral-300">
+      <div className="container py-12 grid gap-10 md:grid-cols-4">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <img src={APP_LOGO} alt="Decor Mali" className="h-10 w-10 rounded-full ring-1 ring-white/20 object-contain" />
+            <span className="font-semibold text-lg">Decor Mali</span>
+          </div>
+          <p className="text-sm text-neutral-400">Salons, tapis & rideaux sur-mesure.</p>
+        </div>
+        <div className="space-y-2 text-sm"><strong>Contact</strong><div>+223 70 93 24 62</div><div>contact@decormali.com</div></div>
+        <div className="space-y-2 text-sm"><strong>Localisation</strong><div>Bamako, Mali</div><div>Toujours ouvert</div></div>
+        <div className="space-y-2 text-sm"><strong>Liens</strong><Link href="/">Accueil</Link><Link href="/quote">Devis</Link></div>
+      </div>
+      <div className="border-top border-white/10">
+        <div className="container py-5 text-xs text-neutral-400">© {new Date().getFullYear()} Decor Mali</div>
+      </div>
+    </footer>
+  );
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b">
         <div className="container py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src={APP_LOGO}
-              alt="Decor Mali"
-              className="h-8 w-8 rounded-full ring-1 ring-muted object-contain"
-            />
+            <img src={APP_LOGO} alt="Decor Mali" className="h-8 w-8 rounded-full ring-1 ring-muted object-contain" />
             <span className="font-semibold">{APP_TITLE}</span>
           </div>
           <Link href="/">
@@ -199,7 +283,7 @@ function QuotePage() {
         <div className="max-w-5xl mx-auto space-y-8">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-bold">Calculateur de Devis</h1>
-            <p className="text-muted-foreground">Estimation détaillée avec prix.</p>
+            <p className="text-muted-foreground">Le détail des prix est masqué. Nous affichons le total.</p>
           </div>
 
           <Tabs defaultValue="salon" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -291,27 +375,18 @@ function QuotePage() {
 
                   <div className="grid md:grid-cols-3 gap-6">
                     <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="smallTable"
-                        checked={salonData.hasSmallTable}
-                        onCheckedChange={(v) => setSalonData({ ...salonData, hasSmallTable: !!v })}
-                      />
+                      <Checkbox id="smallTable" checked={salonData.hasSmallTable}
+                        onCheckedChange={(v) => setSalonData({ ...salonData, hasSmallTable: !!v })} />
                       <Label htmlFor="smallTable">Petite table</Label>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="bigTable"
-                        checked={salonData.hasBigTable}
-                        onCheckedChange={(v) => setSalonData({ ...salonData, hasBigTable: !!v })}
-                      />
+                      <Checkbox id="bigTable" checked={salonData.hasBigTable}
+                        onCheckedChange={(v) => setSalonData({ ...salonData, hasBigTable: !!v })} />
                       <Label htmlFor="bigTable">Grande table</Label>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="delivery"
-                        checked={salonData.needsDelivery}
-                        onCheckedChange={(v) => setSalonData({ ...salonData, needsDelivery: !!v })}
-                      />
+                      <Checkbox id="delivery" checked={salonData.needsDelivery}
+                        onCheckedChange={(v) => setSalonData({ ...salonData, needsDelivery: !!v })} />
                       <Label htmlFor="delivery">Livraison</Label>
                     </div>
                   </div>
@@ -320,10 +395,10 @@ function QuotePage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Estimation du Prix</CardTitle>
-                  <CardDescription>Calcul selon les dimensions et la forme</CardDescription>
+                  <CardTitle>Résultat</CardTitle>
+                  <CardDescription>Dessin des matelas et total du devis</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-6">
                   <div className="flex gap-3">
                     <Button onClick={handleCalculate} className="gap-2">
                       <Calculator className="w-4 h-4" /> Calculer
@@ -331,56 +406,22 @@ function QuotePage() {
                   </div>
 
                   {calculatedPrice && calculatedPrice.type === "salon" && (
-                    <div className="space-y-3">
-                      {calculatedPrice.breakdown.cotes?.length > 0 && (
-                        <div className="rounded-md border p-3 text-sm">
-                          <div className="font-medium mb-2">Détail par côté</div>
-                          {calculatedPrice.breakdown.cotes.map((c) => (
-                            <div key={c.id} className="flex justify-between">
-                              <span>{c.id} : {c.len} m — utile {Number(c.effective).toFixed(2)} m</span>
-                              <span className="font-medium">Matelas : {c.mattresses}</span>
-                            </div>
-                          ))}
+                    <div className="space-y-6">
+                      {/* Schéma */}
+                      <div className="space-y-3">
+                        <div className="text-sm text-muted-foreground">
+                          Forme : {calculatedPrice.breakdown.geom.forme} — Matelas : {calculatedPrice.breakdown.geom.mattressCount} — Coins : {calculatedPrice.breakdown.geom.corners}
                         </div>
-                      )}
+                        <SalonDiagram geom={calculatedPrice.breakdown.geom} />
+                      </div>
 
-                      <div className="grid md:grid-cols-2 gap-3">
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span>Matelas ({calculatedPrice.breakdown.matelas.count})</span>
-                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.matelas.total)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span>Coins ({calculatedPrice.breakdown.coins.count})</span>
-                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.coins.total)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span>Bras ({calculatedPrice.breakdown.bras.count})</span>
-                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.bras.total)}</span>
-                          </div>
-                          {calculatedPrice.breakdown.petiteTable.included && (
-                            <div className="flex justify-between text-sm">
-                              <span>Petite table</span>
-                              <span className="font-medium">{formatPrice(calculatedPrice.breakdown.petiteTable.total)}</span>
-                            </div>
-                          )}
-                          {calculatedPrice.breakdown.grandeTable.included && (
-                            <div className="flex justify-between text-sm">
-                              <span>Grande table</span>
-                              <span className="font-medium">{formatPrice(calculatedPrice.breakdown.grandeTable.total)}</span>
-                            </div>
-                          )}
-                          {calculatedPrice.breakdown.livraison.included && (
-                            <div className="flex justify-between text-sm">
-                              <span>Livraison</span>
-                              <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
-                            </div>
-                          )}
+                      {/* Total uniquement (détails cachés) */}
+                      <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 flex items-center justify-between">
+                        <div className="text-sm text-muted-foreground">
+                          Détails de prix masqués (matelas, coins, bras, options…)
                         </div>
-
-                        <div className="flex flex-col justify-center items-end">
-                          <div className="text-lg font-semibold">Sous-total : {formatPrice(calculatedPrice.subtotal)}</div>
-                          <div className="text-xl font-bold">Total : {formatPrice(calculatedPrice.total)}</div>
+                        <div className="text-2xl font-extrabold text-orange-700">
+                          Total : {formatPrice(calculatedPrice.total)}
                         </div>
                       </div>
                     </div>
@@ -413,11 +454,8 @@ function QuotePage() {
                       />
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="carpetDelivery"
-                        checked={carpetData.needsDelivery}
-                        onCheckedChange={(v) => setCarpetData({ ...carpetData, needsDelivery: !!v })}
-                      />
+                      <Checkbox id="carpetDelivery" checked={carpetData.needsDelivery}
+                        onCheckedChange={(v) => setCarpetData({ ...carpetData, needsDelivery: !!v })} />
                       <Label htmlFor="carpetDelivery">Livraison</Label>
                     </div>
                   </div>
@@ -429,29 +467,12 @@ function QuotePage() {
                   </div>
 
                   {calculatedPrice && calculatedPrice.type === "carpet" && (
-                    <div className="grid md:grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span>Surface (m²)</span>
-                          <span className="font-medium">
-                            {(carpetData.length * carpetData.width).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span>Prix / m²</span>
-                          <span className="font-medium">{formatPrice(PRICES.carpet.pricePerSqm)}</span>
-                        </div>
-                        {calculatedPrice.breakdown.livraison.included && (
-                          <div className="flex justify-between text-sm">
-                            <span>Livraison</span>
-                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
-                          </div>
-                        )}
+                    <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 flex items-center justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Surface : {(carpetData.length * carpetData.width).toFixed(2)} m² — détails masqués
                       </div>
-
-                      <div className="flex flex-col justify-center items-end">
-                        <div className="text-lg font-semibold">Sous-total : {formatPrice(calculatedPrice.subtotal)}</div>
-                        <div className="text-xl font-bold">Total : {formatPrice(calculatedPrice.total)}</div>
+                      <div className="text-2xl font-extrabold text-orange-700">
+                        Total : {formatPrice(calculatedPrice.total)}
                       </div>
                     </div>
                   )}
@@ -494,11 +515,8 @@ function QuotePage() {
                       </Select>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="curtainDelivery"
-                        checked={curtainData.needsDelivery}
-                        onCheckedChange={(v) => setCurtainData({ ...curtainData, needsDelivery: !!v })}
-                      />
+                      <Checkbox id="curtainDelivery" checked={curtainData.needsDelivery}
+                        onCheckedChange={(v) => setCurtainData({ ...curtainData, needsDelivery: !!v })} />
                       <Label htmlFor="curtainDelivery">Livraison</Label>
                     </div>
                   </div>
@@ -510,29 +528,12 @@ function QuotePage() {
                   </div>
 
                   {calculatedPrice && calculatedPrice.type === "curtain" && (
-                    <div className="grid md:grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span>Surface (m²)</span>
-                          <span className="font-medium">
-                            {(curtainData.length * curtainData.width).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span>Prix / m²</span>
-                          <span className="font-medium">{formatPrice(PRICES.curtain[curtainData.quality])}</span>
-                        </div>
-                        {calculatedPrice.breakdown.livraison.included && (
-                          <div className="flex justify-between text-sm">
-                            <span>Livraison</span>
-                            <span className="font-medium">{formatPrice(calculatedPrice.breakdown.livraison.total)}</span>
-                          </div>
-                        )}
+                    <div className="rounded-lg bg-orange-50 border border-orange-100 p-4 flex items-center justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Surface : {(curtainData.length * curtainData.width).toFixed(2)} m² — détails masqués
                       </div>
-
-                      <div className="flex flex-col justify-center items-end">
-                        <div className="text-lg font-semibold">Sous-total : {formatPrice(calculatedPrice.subtotal)}</div>
-                        <div className="text-xl font-bold">Total : {formatPrice(calculatedPrice.total)}</div>
+                      <div className="text-2xl font-extrabold text-orange-700">
+                        Total : {formatPrice(calculatedPrice.total)}
                       </div>
                     </div>
                   )}
@@ -581,13 +582,7 @@ function QuotePage() {
         </div>
       </main>
 
-      <footer className="border-t">
-        <div className="container py-6 text-sm text-muted-foreground">
-          © {new Date().getFullYear()} {APP_TITLE}. Tous droits réservés.
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
-
-export default QuotePage;
